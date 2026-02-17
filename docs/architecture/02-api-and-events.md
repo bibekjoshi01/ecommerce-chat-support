@@ -3,11 +3,16 @@
 ## REST Endpoints
 
 ### Customer
+Implemented in current phase:
+- `GET /api/v1/customer/quick-questions`
 - `POST /api/v1/customer/conversations/start`
-- `POST /api/v1/customer/conversations/{conversation_id}/messages`
-- `POST /api/v1/customer/conversations/{conversation_id}/escalate`
 - `GET /api/v1/customer/conversations/{conversation_id}`
 - `GET /api/v1/customer/conversations/{conversation_id}/messages`
+- `POST /api/v1/customer/conversations/{conversation_id}/messages`
+- `POST /api/v1/customer/conversations/{conversation_id}/quick-replies/{faq_slug}`
+
+Deferred:
+- `POST /api/v1/customer/conversations/{conversation_id}/escalate`
 
 ### Agent
 - `GET /api/v1/agent/conversations?status=automated|agent|closed`

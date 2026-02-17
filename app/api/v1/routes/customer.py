@@ -1,37 +1,207 @@
-from datetime import datetime, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.schemas.conversation import (
-    EscalateConversationResponse,
+from app.utils.conversation_service import (
+    BotExchange,
+    ConversationBootstrap,
+    ConversationMessages,
+    ConversationService,
+)
+from app.utils.errors import (
+    ConversationClosedError,
+    ConversationModeError,
+    ConversationNotFoundError,
+    FaqNotFoundError,
+)
+from app.core.db import get_db_session
+from app.schemas.customer_chat import (
+    BotExchangeResponse,
+    ConversationBootstrapResponse,
+    ConversationMessagesResponse,
+    ConversationResponse,
+    CustomerTextMessageRequest,
+    QuickQuestionResponse,
     StartConversationRequest,
 )
-from app.schemas.message import SendMessageRequest
+from app.schemas.message import MessageResponse
 
 router = APIRouter()
 
 
-@router.post("/conversations/start")
-async def start_conversation(payload: StartConversationRequest) -> dict[str, str]:
-    # Placeholder: implemented with service/repository in the next phase.
-    if not payload.customer_session_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="customer_session_id required")
-    raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Not implemented yet")
+async def get_conversation_service(
+    session: AsyncSession = Depends(get_db_session),
+) -> ConversationService:
+    return ConversationService(session)
 
 
-@router.post("/conversations/{conversation_id}/messages")
-async def post_customer_message(conversation_id: UUID, payload: SendMessageRequest) -> dict[str, str]:
-    if not payload.content.strip():
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="message content required")
-    _ = conversation_id
-    raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Not implemented yet")
+def _to_message_response(message) -> MessageResponse:
+    return MessageResponse.model_validate(message)
 
 
-@router.post("/conversations/{conversation_id}/escalate", response_model=EscalateConversationResponse)
-async def escalate_to_agent(conversation_id: UUID) -> EscalateConversationResponse:
+def _to_conversation_response(conversation) -> ConversationResponse:
+    return ConversationResponse.model_validate(conversation)
+
+
+def _to_quick_questions(entries) -> list[QuickQuestionResponse]:
+    return [
+        QuickQuestionResponse(slug=entry.slug, question=entry.question)
+        for entry in entries
+    ]
+
+
+def _to_bootstrap_response(
+    result: ConversationBootstrap,
+) -> ConversationBootstrapResponse:
+    return ConversationBootstrapResponse(
+        conversation=_to_conversation_response(result.conversation),
+        quick_questions=_to_quick_questions(result.quick_questions),
+        messages=[_to_message_response(message) for message in result.messages],
+        show_talk_to_agent=result.show_talk_to_agent,
+    )
+
+
+def _to_messages_response(result: ConversationMessages) -> ConversationMessagesResponse:
+    return ConversationMessagesResponse(
+        conversation=_to_conversation_response(result.conversation),
+        messages=[_to_message_response(message) for message in result.messages],
+    )
+
+
+def _to_exchange_response(result: BotExchange) -> BotExchangeResponse:
+    return BotExchangeResponse(
+        conversation=_to_conversation_response(result.conversation),
+        customer_message=_to_message_response(result.customer_message),
+        bot_message=_to_message_response(result.bot_message),
+        quick_questions=_to_quick_questions(result.quick_questions),
+        show_talk_to_agent=result.show_talk_to_agent,
+    )
+
+
+def _raise_for_service_error(exc: Exception) -> None:
+    if isinstance(exc, ConversationNotFoundError):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+    if isinstance(exc, FaqNotFoundError):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+    if isinstance(exc, (ConversationClosedError, ConversationModeError)):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
+    raise exc
+
+
+@router.get("/quick-questions", response_model=list[QuickQuestionResponse])
+async def list_quick_questions(
+    service: ConversationService = Depends(get_conversation_service),
+) -> list[QuickQuestionResponse]:
+    entries = await service.list_quick_questions()
+    return _to_quick_questions(entries)
+
+
+@router.post("/conversations/start", response_model=ConversationBootstrapResponse)
+async def start_conversation(
+    payload: StartConversationRequest,
+    service: ConversationService = Depends(get_conversation_service),
+) -> ConversationBootstrapResponse:
+    result = await service.start_customer_conversation(
+        customer_session_id=payload.customer_session_id,
+        force_new=payload.force_new,
+    )
+    return _to_bootstrap_response(result)
+
+
+@router.get("/conversations/{conversation_id}", response_model=ConversationResponse)
+async def get_conversation(
+    conversation_id: UUID,
+    service: ConversationService = Depends(get_conversation_service),
+) -> ConversationResponse:
+    try:
+        conversation = await service.get_conversation(conversation_id)
+    except (
+        ConversationNotFoundError,
+        FaqNotFoundError,
+        ConversationClosedError,
+        ConversationModeError,
+    ) as exc:
+        _raise_for_service_error(exc)
+    return _to_conversation_response(conversation)
+
+
+@router.get(
+    "/conversations/{conversation_id}/messages",
+    response_model=ConversationMessagesResponse,
+)
+async def get_conversation_messages(
+    conversation_id: UUID,
+    service: ConversationService = Depends(get_conversation_service),
+) -> ConversationMessagesResponse:
+    try:
+        result = await service.get_conversation_messages(conversation_id)
+    except (
+        ConversationNotFoundError,
+        FaqNotFoundError,
+        ConversationClosedError,
+        ConversationModeError,
+    ) as exc:
+        _raise_for_service_error(exc)
+    return _to_messages_response(result)
+
+
+@router.post(
+    "/conversations/{conversation_id}/quick-replies/{faq_slug}",
+    response_model=BotExchangeResponse,
+)
+async def send_quick_reply(
+    conversation_id: UUID,
+    faq_slug: str,
+    service: ConversationService = Depends(get_conversation_service),
+) -> BotExchangeResponse:
+    try:
+        result = await service.send_quick_reply(
+            conversation_id=conversation_id, faq_slug=faq_slug
+        )
+    except (
+        ConversationNotFoundError,
+        FaqNotFoundError,
+        ConversationClosedError,
+        ConversationModeError,
+    ) as exc:
+        _raise_for_service_error(exc)
+    return _to_exchange_response(result)
+
+
+@router.post(
+    "/conversations/{conversation_id}/messages", response_model=BotExchangeResponse
+)
+async def post_customer_message(
+    conversation_id: UUID,
+    payload: CustomerTextMessageRequest,
+    service: ConversationService = Depends(get_conversation_service),
+) -> BotExchangeResponse:
+    try:
+        result = await service.send_customer_text_message(
+            conversation_id=conversation_id,
+            content=payload.content,
+        )
+    except (
+        ConversationNotFoundError,
+        FaqNotFoundError,
+        ConversationClosedError,
+        ConversationModeError,
+    ) as exc:
+        _raise_for_service_error(exc)
+    return _to_exchange_response(result)
+
+
+@router.post("/conversations/{conversation_id}/escalate")
+async def escalate_to_agent(conversation_id: UUID) -> dict[str, str]:
     _ = conversation_id
     raise HTTPException(
         status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail={"detail": "Not implemented yet", "timestamp": datetime.now(timezone.utc).isoformat()},
+        detail="Agent escalation is intentionally deferred in this phase",
     )

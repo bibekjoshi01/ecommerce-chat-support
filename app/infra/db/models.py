@@ -1,8 +1,19 @@
 from datetime import datetime
-from uuid import uuid4
+from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, Text, UniqueConstraint, func
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    Uuid,
+    func,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from app.domain.enums import AgentPresence, ConversationStatus, MessageKind, MessageSenderType
@@ -22,7 +33,7 @@ class TimestampMixin:
 class Agent(Base, TimestampMixin):
     __tablename__ = "agents"
 
-    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
     display_name: Mapped[str] = mapped_column(String(120), nullable=False)
     presence: Mapped[AgentPresence] = mapped_column(
         Enum(AgentPresence, name="agent_presence"), nullable=False, default=AgentPresence.OFFLINE
@@ -35,7 +46,7 @@ class Agent(Base, TimestampMixin):
 class Conversation(Base, TimestampMixin):
     __tablename__ = "conversations"
 
-    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
     customer_session_id: Mapped[str] = mapped_column(String(120), index=True, nullable=False)
     status: Mapped[ConversationStatus] = mapped_column(
         Enum(ConversationStatus, name="conversation_status"),
@@ -43,7 +54,7 @@ class Conversation(Base, TimestampMixin):
         default=ConversationStatus.AUTOMATED,
     )
     assigned_agent_id: Mapped[UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("agents.id", ondelete="SET NULL"), nullable=True, index=True
+        Uuid(as_uuid=True), ForeignKey("agents.id", ondelete="SET NULL"), nullable=True, index=True
     )
     requested_agent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -55,19 +66,19 @@ class Conversation(Base, TimestampMixin):
 class Message(Base):
     __tablename__ = "messages"
 
-    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
     conversation_id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), index=True
+        Uuid(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), index=True
     )
     sender_type: Mapped[MessageSenderType] = mapped_column(
         Enum(MessageSenderType, name="message_sender_type"), nullable=False
     )
     sender_agent_id: Mapped[UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("agents.id", ondelete="SET NULL"), nullable=True
+        Uuid(as_uuid=True), ForeignKey("agents.id", ondelete="SET NULL"), nullable=True
     )
     kind: Mapped[MessageKind] = mapped_column(Enum(MessageKind, name="message_kind"), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    metadata_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    metadata_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
@@ -77,7 +88,7 @@ class FaqEntry(Base, TimestampMixin):
     __tablename__ = "faq_entries"
     __table_args__ = (UniqueConstraint("slug", name="uq_faq_slug"),)
 
-    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
     slug: Mapped[str] = mapped_column(String(120), nullable=False)
     question: Mapped[str] = mapped_column(String(300), nullable=False)
     answer: Mapped[str] = mapped_column(Text, nullable=False)

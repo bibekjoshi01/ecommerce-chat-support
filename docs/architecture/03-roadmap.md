@@ -5,11 +5,12 @@
 - project skeleton
 - domain lifecycle state machine + unit tests
 
-## Phase 2
-- DB migrations (Alembic)
+## Phase 2 (current)
 - repositories and conversation service implementation
 - FAQ-backed bot response flow
 - session-based conversation restore APIs
+- local DB bootstrap + default FAQ seed
+- remaining in Phase 2: Alembic migrations
 
 ## Phase 3
 - realtime gateway wiring (Socket.IO)

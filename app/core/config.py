@@ -12,6 +12,10 @@ class Settings(BaseSettings):
     postgres_db: str = "ecommerce_chat"
     postgres_user: str = "chat_user"
     postgres_password: str = "chat_password"
+    database_url_override: str | None = None
+
+    db_auto_create: bool = True
+    db_seed_faq_defaults: bool = True
 
     redis_url: str = "redis://localhost:6379/0"
 
@@ -21,6 +25,8 @@ class Settings(BaseSettings):
 
     @property
     def database_url(self) -> str:
+        if self.database_url_override:
+            return self.database_url_override
         return (
             f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
