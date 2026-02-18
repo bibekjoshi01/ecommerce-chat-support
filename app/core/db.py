@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterator
 
+from sqlalchemy import inspect
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import get_settings
@@ -21,7 +22,14 @@ async def initialize_database() -> None:
         async with engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
 
-    if settings.db_seed_faq_defaults:
+    if settings.db_seed_faq_defaults and await _table_exists("faq_entries"):
         async with SessionFactory() as session:
             await seed_default_faq_entries(session)
             await session.commit()
+
+
+async def _table_exists(table_name: str) -> bool:
+    async with engine.begin() as connection:
+        return await connection.run_sync(
+            lambda sync_connection: inspect(sync_connection).has_table(table_name)
+        )

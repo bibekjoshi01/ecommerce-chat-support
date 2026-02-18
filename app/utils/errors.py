@@ -9,6 +9,14 @@ class ConversationNotFoundError(LookupError):
         self.conversation_id = conversation_id
 
 
+class ConversationAccessDeniedError(PermissionError):
+    def __init__(self, conversation_id: UUID) -> None:
+        super().__init__(
+            f"Conversation '{conversation_id}' does not belong to the current customer session"
+        )
+        self.conversation_id = conversation_id
+
+
 class ConversationClosedError(ValueError):
     def __init__(self, conversation_id: UUID) -> None:
         super().__init__(f"Conversation '{conversation_id}' is closed and read-only")

@@ -5,6 +5,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from app.utils.conversation_service import ConversationService
+from app.utils.errors import ConversationAccessDeniedError
 from app.domain.enums import ConversationStatus, MessageKind, MessageSenderType
 
 
@@ -53,11 +54,14 @@ class FakeConversationRepository:
     async def get_by_id(self, conversation_id: UUID) -> FakeConversation | None:
         return self.conversations.get(conversation_id)
 
-    async def get_latest_active_by_session(self, customer_session_id: str) -> FakeConversation | None:
+    async def get_latest_active_by_session(
+        self, customer_session_id: str
+    ) -> FakeConversation | None:
         active = [
             conv
             for conv in self.conversations.values()
-            if conv.customer_session_id == customer_session_id and conv.status != ConversationStatus.CLOSED
+            if conv.customer_session_id == customer_session_id
+            and conv.status != ConversationStatus.CLOSED
         ]
         if not active:
             return None
@@ -102,7 +106,11 @@ class FakeMessageRepository:
         return message
 
     async def list_by_conversation(self, conversation_id: UUID) -> list[FakeMessage]:
-        return [message for message in self.messages if message.conversation_id == conversation_id]
+        return [
+            message
+            for message in self.messages
+            if message.conversation_id == conversation_id
+        ]
 
 
 class FakeFaqRepository:
@@ -129,7 +137,10 @@ class FakeFaqRepository:
         ]
 
     async def list_active(self) -> list[FakeFaq]:
-        return sorted([entry for entry in self.entries if entry.is_active], key=lambda item: item.display_order)
+        return sorted(
+            [entry for entry in self.entries if entry.is_active],
+            key=lambda item: item.display_order,
+        )
 
     async def get_active_by_slug(self, faq_slug: str) -> FakeFaq | None:
         for entry in self.entries:
@@ -159,8 +170,12 @@ def service() -> ConversationService:
 
 
 @pytest.mark.asyncio
-async def test_start_conversation_creates_welcome_and_faqs(service: ConversationService) -> None:
-    result = await service.start_customer_conversation(customer_session_id="session-abc-123", force_new=False)
+async def test_start_conversation_creates_welcome_and_faqs(
+    service: ConversationService,
+) -> None:
+    result = await service.start_customer_conversation(
+        customer_session_id="session-abc-123", force_new=False
+    )
 
     assert result.conversation.customer_session_id == "session-abc-123"
     assert result.show_talk_to_agent is True
@@ -171,19 +186,33 @@ async def test_start_conversation_creates_welcome_and_faqs(service: Conversation
 
 
 @pytest.mark.asyncio
-async def test_start_conversation_restores_active_session(service: ConversationService) -> None:
-    first = await service.start_customer_conversation(customer_session_id="session-restore-1", force_new=False)
-    second = await service.start_customer_conversation(customer_session_id="session-restore-1", force_new=False)
+async def test_start_conversation_restores_active_session(
+    service: ConversationService,
+) -> None:
+    first = await service.start_customer_conversation(
+        customer_session_id="session-restore-1", force_new=False
+    )
+    second = await service.start_customer_conversation(
+        customer_session_id="session-restore-1", force_new=False
+    )
 
     assert first.conversation.id == second.conversation.id
     assert len(second.messages) == 1
 
 
 @pytest.mark.asyncio
-async def test_quick_reply_stores_customer_and_bot_messages(service: ConversationService) -> None:
-    bootstrap = await service.start_customer_conversation(customer_session_id="session-quick-1", force_new=False)
+async def test_quick_reply_stores_customer_and_bot_messages(
+    service: ConversationService,
+) -> None:
+    bootstrap = await service.start_customer_conversation(
+        customer_session_id="session-quick-1", force_new=False
+    )
 
-    exchange = await service.send_quick_reply(bootstrap.conversation.id, "return-policy")
+    exchange = await service.send_quick_reply(
+        bootstrap.conversation.id,
+        "return-policy",
+        customer_session_id="session-quick-1",
+    )
 
     assert exchange.customer_message.sender_type == MessageSenderType.CUSTOMER
     assert exchange.customer_message.kind == MessageKind.QUICK_REPLY
@@ -193,12 +222,17 @@ async def test_quick_reply_stores_customer_and_bot_messages(service: Conversatio
 
 
 @pytest.mark.asyncio
-async def test_free_text_returns_fallback_for_unknown_question(service: ConversationService) -> None:
-    bootstrap = await service.start_customer_conversation(customer_session_id="session-text-1", force_new=False)
+async def test_free_text_returns_fallback_for_unknown_question(
+    service: ConversationService,
+) -> None:
+    bootstrap = await service.start_customer_conversation(
+        customer_session_id="session-text-1", force_new=False
+    )
 
     exchange = await service.send_customer_text_message(
         bootstrap.conversation.id,
         "Can you explain warehouse packing SLA?",
+        customer_session_id="session-text-1",
     )
 
     assert exchange.customer_message.sender_type == MessageSenderType.CUSTOMER
@@ -209,13 +243,49 @@ async def test_free_text_returns_fallback_for_unknown_question(service: Conversa
 
 @pytest.mark.asyncio
 async def test_free_text_matches_faq_question(service: ConversationService) -> None:
-    bootstrap = await service.start_customer_conversation(customer_session_id="session-text-2", force_new=False)
+    bootstrap = await service.start_customer_conversation(
+        customer_session_id="session-text-2", force_new=False
+    )
 
     exchange = await service.send_customer_text_message(
         bootstrap.conversation.id,
         "What is the return policy?",
+        customer_session_id="session-text-2",
     )
 
     assert "30 days" in exchange.bot_message.content
     assert exchange.bot_message.metadata_json
     assert exchange.bot_message.metadata_json.get("faq_slug") == "return-policy"
+
+
+@pytest.mark.asyncio
+async def test_get_conversation_fails_for_mismatched_session(
+    service: ConversationService,
+) -> None:
+    bootstrap = await service.start_customer_conversation(
+        customer_session_id="session-owner-1",
+        force_new=False,
+    )
+
+    with pytest.raises(ConversationAccessDeniedError):
+        await service.get_conversation(
+            bootstrap.conversation.id,
+            customer_session_id="session-owner-2",
+        )
+
+
+@pytest.mark.asyncio
+async def test_send_message_fails_for_mismatched_session(
+    service: ConversationService,
+) -> None:
+    bootstrap = await service.start_customer_conversation(
+        customer_session_id="session-msg-owner-1",
+        force_new=False,
+    )
+
+    with pytest.raises(ConversationAccessDeniedError):
+        await service.send_customer_text_message(
+            bootstrap.conversation.id,
+            "What is the return policy?",
+            customer_session_id="session-msg-owner-2",
+        )

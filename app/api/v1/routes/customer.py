@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.utils.conversation_service import (
@@ -10,6 +10,7 @@ from app.utils.conversation_service import (
     ConversationService,
 )
 from app.utils.errors import (
+    ConversationAccessDeniedError,
     ConversationClosedError,
     ConversationModeError,
     ConversationNotFoundError,
@@ -34,6 +35,16 @@ async def get_conversation_service(
     session: AsyncSession = Depends(get_db_session),
 ) -> ConversationService:
     return ConversationService(session)
+
+
+async def get_customer_session_id(
+    x_customer_session_id: str = Header(
+        alias="X-Customer-Session-Id",
+        min_length=8,
+        max_length=120,
+    ),
+) -> str:
+    return x_customer_session_id.strip()
 
 
 def _to_message_response(message) -> MessageResponse:
@@ -80,6 +91,11 @@ def _to_exchange_response(result: BotExchange) -> BotExchangeResponse:
 
 
 def _raise_for_service_error(exc: Exception) -> None:
+    if isinstance(exc, ConversationAccessDeniedError):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        ) from exc
     if isinstance(exc, ConversationNotFoundError):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
@@ -119,10 +135,15 @@ async def start_conversation(
 async def get_conversation(
     conversation_id: UUID,
     service: ConversationService = Depends(get_conversation_service),
+    customer_session_id: str = Depends(get_customer_session_id),
 ) -> ConversationResponse:
     try:
-        conversation = await service.get_conversation(conversation_id)
+        conversation = await service.get_conversation(
+            conversation_id,
+            customer_session_id,
+        )
     except (
+        ConversationAccessDeniedError,
         ConversationNotFoundError,
         FaqNotFoundError,
         ConversationClosedError,
@@ -139,10 +160,15 @@ async def get_conversation(
 async def get_conversation_messages(
     conversation_id: UUID,
     service: ConversationService = Depends(get_conversation_service),
+    customer_session_id: str = Depends(get_customer_session_id),
 ) -> ConversationMessagesResponse:
     try:
-        result = await service.get_conversation_messages(conversation_id)
+        result = await service.get_conversation_messages(
+            conversation_id,
+            customer_session_id,
+        )
     except (
+        ConversationAccessDeniedError,
         ConversationNotFoundError,
         FaqNotFoundError,
         ConversationClosedError,
@@ -160,12 +186,16 @@ async def send_quick_reply(
     conversation_id: UUID,
     faq_slug: str,
     service: ConversationService = Depends(get_conversation_service),
+    customer_session_id: str = Depends(get_customer_session_id),
 ) -> BotExchangeResponse:
     try:
         result = await service.send_quick_reply(
-            conversation_id=conversation_id, faq_slug=faq_slug
+            conversation_id=conversation_id,
+            faq_slug=faq_slug,
+            customer_session_id=customer_session_id,
         )
     except (
+        ConversationAccessDeniedError,
         ConversationNotFoundError,
         FaqNotFoundError,
         ConversationClosedError,
@@ -182,13 +212,16 @@ async def post_customer_message(
     conversation_id: UUID,
     payload: CustomerTextMessageRequest,
     service: ConversationService = Depends(get_conversation_service),
+    customer_session_id: str = Depends(get_customer_session_id),
 ) -> BotExchangeResponse:
     try:
         result = await service.send_customer_text_message(
             conversation_id=conversation_id,
             content=payload.content,
+            customer_session_id=customer_session_id,
         )
     except (
+        ConversationAccessDeniedError,
         ConversationNotFoundError,
         FaqNotFoundError,
         ConversationClosedError,

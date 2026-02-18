@@ -4,6 +4,7 @@ from uuid import UUID, uuid4
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.utils.errors import (
+    ConversationAccessDeniedError,
     ConversationClosedError,
     ConversationModeError,
     ConversationNotFoundError,
@@ -89,16 +90,35 @@ class ConversationService:
     async def list_quick_questions(self) -> list[FaqEntry]:
         return await self.faqs.list_active()
 
-    async def get_conversation(self, conversation_id: UUID) -> Conversation:
-        return await self._get_conversation_or_raise(conversation_id)
+    async def get_conversation(
+        self,
+        conversation_id: UUID,
+        customer_session_id: str,
+    ) -> Conversation:
+        return await self._get_conversation_or_raise(conversation_id, customer_session_id)
 
-    async def get_conversation_messages(self, conversation_id: UUID) -> ConversationMessages:
-        conversation = await self._get_conversation_or_raise(conversation_id)
+    async def get_conversation_messages(
+        self,
+        conversation_id: UUID,
+        customer_session_id: str,
+    ) -> ConversationMessages:
+        conversation = await self._get_conversation_or_raise(
+            conversation_id,
+            customer_session_id,
+        )
         conversation_messages = await self.messages.list_by_conversation(conversation_id)
         return ConversationMessages(conversation=conversation, messages=conversation_messages)
 
-    async def send_quick_reply(self, conversation_id: UUID, faq_slug: str) -> BotExchange:
-        conversation = await self._get_conversation_or_raise(conversation_id)
+    async def send_quick_reply(
+        self,
+        conversation_id: UUID,
+        faq_slug: str,
+        customer_session_id: str,
+    ) -> BotExchange:
+        conversation = await self._get_conversation_or_raise(
+            conversation_id,
+            customer_session_id,
+        )
         self._assert_bot_mode(conversation)
 
         faq_entry = await self.faqs.get_active_by_slug(faq_slug)
@@ -135,8 +155,16 @@ class ConversationService:
             show_talk_to_agent=ConversationLifecycle.should_show_talk_to_agent(conversation.status),
         )
 
-    async def send_customer_text_message(self, conversation_id: UUID, content: str) -> BotExchange:
-        conversation = await self._get_conversation_or_raise(conversation_id)
+    async def send_customer_text_message(
+        self,
+        conversation_id: UUID,
+        content: str,
+        customer_session_id: str,
+    ) -> BotExchange:
+        conversation = await self._get_conversation_or_raise(
+            conversation_id,
+            customer_session_id,
+        )
         self._assert_bot_mode(conversation)
 
         cleaned_content = content.strip()
@@ -184,10 +212,16 @@ class ConversationService:
             show_talk_to_agent=ConversationLifecycle.should_show_talk_to_agent(conversation.status),
         )
 
-    async def _get_conversation_or_raise(self, conversation_id: UUID) -> Conversation:
+    async def _get_conversation_or_raise(
+        self,
+        conversation_id: UUID,
+        customer_session_id: str,
+    ) -> Conversation:
         conversation = await self.conversations.get_by_id(conversation_id)
         if conversation is None:
             raise ConversationNotFoundError(conversation_id)
+        if conversation.customer_session_id != customer_session_id:
+            raise ConversationAccessDeniedError(conversation_id)
         return conversation
 
     def _resolve_customer_session_id(self, customer_session_id: str | None) -> str:

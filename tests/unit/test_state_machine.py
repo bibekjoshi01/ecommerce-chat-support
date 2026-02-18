@@ -28,7 +28,9 @@ def test_idempotent_escalate_from_agent() -> None:
 
 def test_invalid_transition_raises() -> None:
     with pytest.raises(InvalidConversationTransition):
-        ConversationLifecycle.transition(ConversationStatus.AUTOMATED, TransitionAction.CLOSE_BY_AGENT)
+        ConversationLifecycle.transition(
+            ConversationStatus.AUTOMATED, TransitionAction.CLOSE_BY_AGENT
+        )
 
 
 def test_closed_is_read_only() -> None:
@@ -39,4 +41,6 @@ def test_closed_is_read_only() -> None:
 def test_talk_to_agent_visibility_rules() -> None:
     assert ConversationLifecycle.should_show_talk_to_agent(ConversationStatus.AUTOMATED)
     assert not ConversationLifecycle.should_show_talk_to_agent(ConversationStatus.AGENT)
-    assert not ConversationLifecycle.should_show_talk_to_agent(ConversationStatus.CLOSED)
+    assert not ConversationLifecycle.should_show_talk_to_agent(
+        ConversationStatus.CLOSED
+    )

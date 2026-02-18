@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -12,9 +13,12 @@ class Settings(BaseSettings):
     postgres_db: str = "ecommerce_chat"
     postgres_user: str = "chat_user"
     postgres_password: str = "chat_password"
-    database_url_override: str | None = None
+    database_url_override: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("DATABASE_URL_OVERRIDE", "DATABASE_URL"),
+    )
 
-    db_auto_create: bool = True
+    db_auto_create: bool = False
     db_seed_faq_defaults: bool = True
 
     redis_url: str = "redis://localhost:6379/0"

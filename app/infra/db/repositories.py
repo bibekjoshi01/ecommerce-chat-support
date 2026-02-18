@@ -15,7 +15,9 @@ class ConversationRepository:
     async def get_by_id(self, conversation_id: UUID) -> Conversation | None:
         return await self.session.get(Conversation, conversation_id)
 
-    async def get_latest_active_by_session(self, customer_session_id: str) -> Conversation | None:
+    async def get_latest_active_by_session(
+        self, customer_session_id: str
+    ) -> Conversation | None:
         stmt: Select[tuple[Conversation]] = (
             select(Conversation)
             .where(
@@ -29,7 +31,9 @@ class ConversationRepository:
         return result.scalar_one_or_none()
 
     async def create(self, customer_session_id: str) -> Conversation:
-        conversation = Conversation(customer_session_id=customer_session_id, status=ConversationStatus.AUTOMATED)
+        conversation = Conversation(
+            customer_session_id=customer_session_id, status=ConversationStatus.AUTOMATED
+        )
         self.session.add(conversation)
         await self.session.flush()
         return conversation
@@ -106,7 +110,10 @@ class FaqRepository:
             select(FaqEntry)
             .where(
                 FaqEntry.is_active.is_(True),
-                or_(func.lower(FaqEntry.question) == normalized, func.lower(FaqEntry.slug) == normalized),
+                or_(
+                    func.lower(FaqEntry.question) == normalized,
+                    func.lower(FaqEntry.slug) == normalized,
+                ),
             )
             .order_by(FaqEntry.display_order.asc())
             .limit(1)

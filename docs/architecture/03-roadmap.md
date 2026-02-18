@@ -10,7 +10,8 @@
 - FAQ-backed bot response flow
 - session-based conversation restore APIs
 - local DB bootstrap + default FAQ seed
-- remaining in Phase 2: Alembic migrations
+- Alembic baseline migration
+- session ownership checks for customer conversation APIs
 
 ## Phase 3
 - realtime gateway wiring (Socket.IO)

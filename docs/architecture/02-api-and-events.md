@@ -10,6 +10,8 @@ Implemented in current phase:
 - `GET /api/v1/customer/conversations/{conversation_id}/messages`
 - `POST /api/v1/customer/conversations/{conversation_id}/messages`
 - `POST /api/v1/customer/conversations/{conversation_id}/quick-replies/{faq_slug}`
+- Conversation-scoped endpoints require header:
+  - `X-Customer-Session-Id: <customer_session_id>`
 
 Deferred:
 - `POST /api/v1/customer/conversations/{conversation_id}/escalate`
@@ -43,4 +45,5 @@ Server emits:
 - `409 CONFLICT` for invalid lifecycle transition.
 - `423 LOCKED` when concurrent operation holds assignment lock.
 - `404` for missing conversation.
+- `403 FORBIDDEN` when conversation session ownership check fails.
 - `400` for validation failures.
