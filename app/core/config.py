@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     app_env: str = "local"
     api_port: int = 8000
 
-    postgres_host: str = "localhost"
+    postgres_host: str = "127.0.0.1"
     postgres_port: int = 5432
     postgres_db: str = "ecommerce_chat"
     postgres_user: str = "chat_user"
@@ -17,7 +17,9 @@ class Settings(BaseSettings):
         default=None,
         validation_alias=AliasChoices("DATABASE_URL_OVERRIDE", "DATABASE_URL"),
     )
-
+    db_pool_size: int = 10
+    db_max_overflow: int = 20
+    db_pool_timeout: int = 30
     db_auto_create: bool = False
     db_seed_faq_defaults: bool = True
 

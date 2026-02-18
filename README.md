@@ -1,6 +1,7 @@
 # E-commerce Chat Backend
 
 This repository currently includes:
+
 - Layered Python backend (FastAPI + SQLAlchemy)
 - Conversation lifecycle model (`automated -> agent -> closed`)
 - Working customer bot flow with persistent conversation history
@@ -17,7 +18,7 @@ pip install -e '.[dev]'
 cp .env.example .env
 ```
 
-### Option A: Docker Postgres + Docker Redis
+### Docker Postgres + Docker Redis
 
 ```bash
 docker compose up -d postgres redis
@@ -25,15 +26,8 @@ alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
-### Option B: Local Postgres + local/Docker Redis
-
-Set DB URL in `.env`:
-
-```bash
-# .env
-DATABASE_URL=postgresql+asyncpg://<user>:<password>@localhost:5432/<db_name>
-# (DATABASE_URL_OVERRIDE works too)
-```
+If you also run a local Postgres service, keep `POSTGRES_HOST=localhost` (not `localhost`)
+in `.env` to avoid IPv6 `localhost` resolving to the wrong database.
 
 Then run:
 
@@ -53,20 +47,5 @@ uvicorn app.main:app --reload
 - `POST /api/v1/customer/conversations/{conversation_id}/messages`
 
 Conversation-specific customer endpoints require:
+
 - Header: `X-Customer-Session-Id: <customer_session_id>`
-
-## Current scope
-
-Implemented:
-- Alembic migration baseline (`alembic upgrade head`)
-- Default FAQ seeding at startup (after schema exists)
-- Bot quick-question replies sourced from database FAQ entries
-- Session-based active conversation restore on repeated start requests
-- Session ownership checks for conversation reads/writes
-- Customer message + bot reply persistence in message history
-- Lifecycle unit tests
-
-Deferred:
-- Agent assignment and live agent dashboard behavior
-- WebSocket event handling
-- Queueing/retry workers

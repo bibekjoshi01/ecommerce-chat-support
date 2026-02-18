@@ -4,15 +4,21 @@ from fastapi import FastAPI
 
 from app.api.router import api_router
 from app.core.config import get_settings
-from app.core.db import initialize_database
+from app.core.db import init_engine, close_engine
 
 settings = get_settings()
 
 
 @asynccontextmanager
-async def lifespan(_: FastAPI):
-    await initialize_database()
+async def lifespan(app: FastAPI):
+    # Initialize infrastructure
+    engine = init_engine()
+    app.state.db_engine = engine
+
     yield
+
+    # Graceful shutdown
+    await close_engine(engine)
 
 
 app = FastAPI(

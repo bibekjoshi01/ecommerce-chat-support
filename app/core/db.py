@@ -1,35 +1,52 @@
 from collections.abc import AsyncIterator
-
-from sqlalchemy import inspect
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+    AsyncEngine,
+)
 
 from app.core.config import get_settings
-from app.infra.db.models import Base
-from app.infra.db.seed import seed_default_faq_entries
 
 settings = get_settings()
-engine = create_async_engine(settings.database_url, echo=False, pool_pre_ping=True)
-SessionFactory = async_sessionmaker(engine, autoflush=False, expire_on_commit=False)
+
+_session_factory: async_sessionmaker[AsyncSession] | None = None
+
+
+def init_engine() -> AsyncEngine:
+    global _session_factory
+
+    engine = create_async_engine(
+        settings.database_url,
+        pool_size=settings.db_pool_size,
+        max_overflow=settings.db_max_overflow,
+        pool_timeout=settings.db_pool_timeout,
+        pool_pre_ping=True,
+        echo=False,
+    )
+
+    _session_factory = async_sessionmaker(
+        engine,
+        autoflush=False,
+        expire_on_commit=False,
+    )
+
+    return engine
+
+
+def get_session_factory() -> async_sessionmaker[AsyncSession]:
+    if _session_factory is None:
+        raise RuntimeError("Database not initialized")
+
+    return _session_factory
+
+
+async def close_engine(engine: AsyncEngine) -> None:
+    await engine.dispose()
 
 
 async def get_db_session() -> AsyncIterator[AsyncSession]:
-    async with SessionFactory() as session:
+    session_factory = get_session_factory()
+
+    async with session_factory() as session:
         yield session
-
-
-async def initialize_database() -> None:
-    if settings.db_auto_create:
-        async with engine.begin() as connection:
-            await connection.run_sync(Base.metadata.create_all)
-
-    if settings.db_seed_faq_defaults and await _table_exists("faq_entries"):
-        async with SessionFactory() as session:
-            await seed_default_faq_entries(session)
-            await session.commit()
-
-
-async def _table_exists(table_name: str) -> bool:
-    async with engine.begin() as connection:
-        return await connection.run_sync(
-            lambda sync_connection: inspect(sync_connection).has_table(table_name)
-        )
