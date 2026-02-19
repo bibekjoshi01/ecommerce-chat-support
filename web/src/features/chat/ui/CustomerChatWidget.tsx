@@ -59,7 +59,7 @@ export const CustomerChatWidget = () => {
     if (isConversationClosed) {
       return "Chat ended. Start a new conversation.";
     }
-    return "Write your message to the assigned agent...";
+    return "Write your message ...";
   }, [isConversationClosed]);
 
   useEffect(() => {
@@ -152,7 +152,6 @@ export const CustomerChatWidget = () => {
             {isAssistantTyping && (
               <article className="bubble bubble--support bubble--typing">
                 <div className="bubble-meta">
-                  <span>Support</span>
                   <time>typing...</time>
                 </div>
                 <p className="typing-dots">
@@ -176,14 +175,6 @@ export const CustomerChatWidget = () => {
                     {quickQuestion.question}
                   </button>
                 ))}
-                <button
-                  className="quick-question-button quick-question-button--agent"
-                  type="button"
-                  disabled={!canEscalate}
-                  onClick={() => void escalateToAgent()}
-                >
-                  Talk to an agent
-                </button>
               </div>
             )}
 

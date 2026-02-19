@@ -46,7 +46,11 @@
   height: min(620px, calc(100vh - 5.5rem));
   border: 1px solid #d6e0eb;
   border-radius: 22px;
-  background: linear-gradient(165deg, rgb(255 255 255 / 96%), rgb(243 250 250 / 95%));
+  background: linear-gradient(
+    165deg,
+    rgb(255 255 255 / 96%),
+    rgb(243 250 250 / 95%)
+  );
   box-shadow:
     0 20px 48px rgb(28 35 52 / 22%),
     inset 0 1px 0 rgb(255 255 255 / 88%);
@@ -132,8 +136,9 @@
   border-radius: 16px;
   background: linear-gradient(178deg, #fcfefd, var(--surface-soft));
   padding: 0.7rem;
-  min-height: 430px;
+  min-height: 470px;
   overflow: auto;
+  margin-bottom: 10px;
 }
 
 .chat-empty {
