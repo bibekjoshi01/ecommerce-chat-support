@@ -3,6 +3,7 @@ import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
 import type {
   BotExchangeResponse,
   ConversationBootstrapResponse,
+  ConversationMessagesResponse,
   QuickQuestion,
 } from "../../../shared/types/chat";
 
@@ -46,6 +47,18 @@ export const chatApi = createApi({
       }),
       invalidatesTags: ["Conversation", "Messages", "QuickQuestions"],
     }),
+    getConversationMessages: builder.query<
+      ConversationMessagesResponse,
+      ConversationScopedRequest
+    >({
+      query: ({ conversationId, sessionId }) => ({
+        url: `/conversations/${conversationId}/messages`,
+        headers: {
+          "X-Customer-Session-Id": sessionId,
+        },
+      }),
+      providesTags: ["Conversation", "Messages"],
+    }),
     sendTextMessage: builder.mutation<BotExchangeResponse, SendTextMessageRequest>({
       query: ({ conversationId, sessionId, content }) => ({
         url: `/conversations/${conversationId}/messages`,
@@ -81,6 +94,7 @@ export const chatApi = createApi({
 });
 
 export const {
+  useLazyGetConversationMessagesQuery,
   useEscalateToAgentMutation,
   useSendQuickReplyMutation,
   useSendTextMessageMutation,

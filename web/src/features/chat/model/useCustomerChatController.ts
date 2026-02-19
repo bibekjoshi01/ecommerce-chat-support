@@ -1,5 +1,5 @@
 import { FetchBaseQueryError } from "@reduxjs/toolkit/query";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useAppDispatch, useAppSelector } from "../../../app/hooks";
 import { buildRealtimeWsUrl } from "../../../shared/lib/realtime";
@@ -13,6 +13,7 @@ import type {
 } from "../../../shared/types/chat";
 import {
   useEscalateToAgentMutation,
+  useLazyGetConversationMessagesQuery,
   useSendQuickReplyMutation,
   useSendTextMessageMutation,
   useStartConversationMutation,
@@ -21,6 +22,7 @@ import {
   appendExchange,
   hydrateFromBootstrap,
   setSessionId,
+  setConversationMessages,
   upsertConversation,
   upsertMessage,
 } from "./chatSlice";
@@ -139,6 +141,7 @@ export const useCustomerChatController = () => {
     useSendQuickReplyMutation();
   const [escalateToAgentMutation, { isLoading: isEscalatingToAgent }] =
     useEscalateToAgentMutation();
+  const [fetchConversationMessages] = useLazyGetConversationMessagesQuery();
 
   const [draft, setDraft] = useState("");
   const [uiError, setUiError] = useState<string | null>(null);
@@ -153,12 +156,43 @@ export const useCustomerChatController = () => {
     null,
   );
   const conversationStatusRef = useRef<Conversation["status"] | null>(null);
+  const syncRequestSeqRef = useRef(0);
 
   const isSending = isSendingText || isSendingQuickReply || isEscalatingToAgent;
   const isConversationClosed = conversation?.status === "closed";
   const isAutomatedMode = conversation?.status === "automated";
   const isAgentMode = conversation?.status === "agent";
   conversationStatusRef.current = conversation?.status ?? null;
+
+  const syncConversationFromServer = useCallback(
+    async (conversationId: string, customerSessionId: string) => {
+      const requestSeq = ++syncRequestSeqRef.current;
+
+      try {
+        const response = await fetchConversationMessages(
+          {
+            conversationId,
+            sessionId: customerSessionId,
+          },
+          false,
+        ).unwrap();
+
+        if (requestSeq !== syncRequestSeqRef.current) {
+          return;
+        }
+
+        dispatch(
+          setConversationMessages({
+            conversation: response.conversation,
+            messages: response.messages,
+          }),
+        );
+      } catch (_error) {
+        return;
+      }
+    },
+    [dispatch, fetchConversationMessages],
+  );
 
   useEffect(() => {
     if (!sessionId) {
@@ -200,6 +234,14 @@ export const useCustomerChatController = () => {
     if (!sessionId || !conversation?.id) {
       return;
     }
+    void syncConversationFromServer(conversation.id, sessionId);
+  }, [conversation?.id, sessionId, syncConversationFromServer]);
+
+  useEffect(() => {
+    if (!sessionId || !conversation?.id) {
+      return;
+    }
+    const conversationId = conversation.id;
 
     let closedByCleanup = false;
     let reconnectAttempt = 0;
@@ -230,7 +272,7 @@ export const useCustomerChatController = () => {
       const websocket = new WebSocket(
         buildRealtimeWsUrl({
           role: "customer",
-          conversation_id: conversation.id,
+          conversation_id: conversationId,
           customer_session_id: sessionId,
         }),
       );
@@ -244,6 +286,8 @@ export const useCustomerChatController = () => {
         }
         reconnectAttempt = 0;
         setIsRealtimeConnected(true);
+        setUiError(null);
+        void syncConversationFromServer(conversationId, sessionId);
       };
 
       websocket.onclose = () => {
@@ -281,6 +325,9 @@ export const useCustomerChatController = () => {
           if (!isConversation(nextConversation)) {
             return;
           }
+          if (nextConversation.id !== conversationId) {
+            return;
+          }
           dispatch(upsertConversation(nextConversation));
           if (nextConversation.status !== "agent") {
             if (agentTypingResetTimerRef.current) {
@@ -300,7 +347,7 @@ export const useCustomerChatController = () => {
           const isTyping = envelope.payload.is_typing;
           if (
             typeof payloadConversationId !== "string" ||
-            payloadConversationId !== conversation.id ||
+            payloadConversationId !== conversationId ||
             typeof isTyping !== "boolean"
           ) {
             return;
@@ -330,6 +377,9 @@ export const useCustomerChatController = () => {
           }
           const message = envelope.payload.message;
           if (!isMessage(message)) {
+            return;
+          }
+          if (message.conversation_id !== conversationId) {
             return;
           }
           dispatch(upsertMessage(message));
@@ -366,7 +416,7 @@ export const useCustomerChatController = () => {
       }
       setIsAgentTyping(false);
     };
-  }, [conversation?.id, dispatch, sessionId]);
+  }, [conversation?.id, dispatch, sessionId, syncConversationFromServer]);
 
   useEffect(() => {
     if (isAgentMode) {

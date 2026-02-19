@@ -319,42 +319,47 @@ class ConversationService:
         )
 
         assigned_agent = await self._resolve_assigned_agent(conversation)
+        status_changed = conversation.status != ConversationStatus.AGENT
         assignment_changed = conversation.assigned_agent_id != assigned_agent.id
         agent_display_name = self._display_agent_name(assigned_agent)
 
-        if conversation.status != ConversationStatus.AGENT:
+        if status_changed:
             conversation.status = ConversationLifecycle.transition(
                 conversation.status, TransitionAction.ESCALATE_TO_AGENT
             )
-            assignment_changed = True
 
         if assignment_changed:
             conversation.assigned_agent_id = assigned_agent.id
             conversation.requested_agent_at = datetime.now(UTC)
+        if status_changed or assignment_changed:
             await self.conversations.touch(conversation)
 
-        system_message = await self.messages.create(
-            conversation_id=conversation.id,
-            sender_type=MessageSenderType.SYSTEM,
-            kind=MessageKind.EVENT,
-            content=(
-                f"{agent_display_name} is connected. "
-                "You can continue typing your message."
-            ),
-            metadata_json={
-                "assigned_agent_id": str(assigned_agent.id),
-                "assigned_agent_name": agent_display_name,
-                "show_talk_to_agent": False,
-            },
-        )
+        system_message: Message | None = None
+        if status_changed or assignment_changed:
+            system_message = await self.messages.create(
+                conversation_id=conversation.id,
+                sender_type=MessageSenderType.SYSTEM,
+                kind=MessageKind.EVENT,
+                content=(
+                    f"{agent_display_name} is connected. "
+                    "You can continue typing your message."
+                ),
+                metadata_json={
+                    "assigned_agent_id": str(assigned_agent.id),
+                    "assigned_agent_name": agent_display_name,
+                    "show_talk_to_agent": False,
+                },
+            )
 
         await self.session.commit()
         await self.session.refresh(conversation)
 
         await self._emit_message_created(customer_message)
-        await self._emit_message_created(system_message)
+        if system_message is not None:
+            await self._emit_message_created(system_message)
         await self._emit_conversation_updated(conversation)
-        await self._emit_agent_assigned(conversation, assigned_agent)
+        if assignment_changed:
+            await self._emit_agent_assigned(conversation, assigned_agent)
 
         return BotExchange(
             conversation=conversation,
@@ -403,14 +408,27 @@ class ConversationService:
         if not online_agents:
             raise NoAvailableAgentError()
 
+        best_agent: Agent | None = None
+        best_score: tuple[int, float, int] | None = None
+
         for agent in online_agents:
             active_count = await self.conversations.count_active_assigned_to_agent(
                 agent.id
             )
-            if active_count < agent.max_active_chats:
-                return agent
+            max_chats = max(agent.max_active_chats, 1)
+            has_capacity = active_count < max_chats
+            score = (
+                0 if has_capacity else 1,
+                active_count / max_chats,
+                active_count,
+            )
+            if best_score is None or score < best_score:
+                best_score = score
+                best_agent = agent
 
-        return online_agents[0]
+        if best_agent is None:
+            raise NoAvailableAgentError()
+        return best_agent
 
     async def _emit_message_created(self, message: Message) -> None:
         await self._safe_publish(

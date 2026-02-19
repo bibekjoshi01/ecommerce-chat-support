@@ -377,6 +377,38 @@ async def test_escalate_to_agent_switches_mode_and_assigns_agent(
 
 
 @pytest.mark.asyncio
+async def test_escalate_to_agent_is_idempotent_after_assignment(
+    service: ConversationService,
+) -> None:
+    bootstrap = await service.start_customer_conversation(
+        customer_session_id="session-escalate-repeat-1",
+        force_new=False,
+    )
+    first = await service.escalate_to_agent(
+        bootstrap.conversation.id,
+        customer_session_id="session-escalate-repeat-1",
+    )
+    second = await service.escalate_to_agent(
+        bootstrap.conversation.id,
+        customer_session_id="session-escalate-repeat-1",
+    )
+
+    assert second.conversation.status == ConversationStatus.AGENT
+    assert second.conversation.assigned_agent_id == first.conversation.assigned_agent_id
+    assert second.customer_message.sender_type == MessageSenderType.CUSTOMER
+    assert second.bot_message is None
+
+    assert isinstance(service.messages, FakeMessageRepository)
+    system_messages = [
+        message
+        for message in service.messages.messages
+        if message.conversation_id == bootstrap.conversation.id
+        and message.sender_type == MessageSenderType.SYSTEM
+    ]
+    assert len(system_messages) == 1
+
+
+@pytest.mark.asyncio
 async def test_send_text_in_agent_mode_queues_message_without_system_reply(
     service: ConversationService,
 ) -> None:
@@ -463,3 +495,38 @@ async def test_send_text_in_agent_mode_succeeds_when_no_agent_available(
     assert exchange.customer_message.sender_type == MessageSenderType.CUSTOMER
     assert exchange.bot_message is None
     assert exchange.conversation.assigned_agent_id is None
+
+
+@pytest.mark.asyncio
+async def test_escalation_prefers_less_loaded_online_agent(
+    service: ConversationService,
+) -> None:
+    assert isinstance(service.agents, FakeAgentRepository)
+    assert isinstance(service.conversations, FakeConversationRepository)
+
+    primary_agent = service.agents.agents[0]
+    secondary_agent = await service.agents.create(
+        display_name="Noah (Agent)",
+        max_active_chats=3,
+    )
+
+    for index in range(primary_agent.max_active_chats):
+        seeded_id = uuid4()
+        service.conversations.conversations[seeded_id] = FakeConversation(
+            id=seeded_id,
+            customer_session_id=f"session-busy-primary-{index}",
+            status=ConversationStatus.AGENT,
+            assigned_agent_id=primary_agent.id,
+        )
+
+    bootstrap = await service.start_customer_conversation(
+        customer_session_id="session-load-balance-1",
+        force_new=False,
+    )
+    exchange = await service.escalate_to_agent(
+        bootstrap.conversation.id,
+        customer_session_id="session-load-balance-1",
+    )
+
+    assert exchange.conversation.status == ConversationStatus.AGENT
+    assert exchange.conversation.assigned_agent_id == secondary_agent.id

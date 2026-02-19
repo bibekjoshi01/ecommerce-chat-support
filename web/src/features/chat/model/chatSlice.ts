@@ -86,6 +86,13 @@ const chatSlice = createSlice({
     upsertConversation(state, action: PayloadAction<Conversation>) {
       state.conversation = action.payload;
     },
+    setConversationMessages(
+      state,
+      action: PayloadAction<{ conversation: Conversation; messages: Message[] }>,
+    ) {
+      state.conversation = action.payload.conversation;
+      state.messages = sortByCreatedAt(action.payload.messages);
+    },
     upsertMessage(state, action: PayloadAction<Message>) {
       state.messages = mergeMessages(state.messages, [action.payload]);
     },
@@ -96,6 +103,7 @@ export const {
   appendExchange,
   hydrateFromBootstrap,
   setSessionId,
+  setConversationMessages,
   upsertConversation,
   upsertMessage,
 } = chatSlice.actions;
