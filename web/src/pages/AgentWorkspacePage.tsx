@@ -1,5 +1,8 @@
 import { Link } from "react-router-dom";
 
+import "./PageLayout.css";
+import "./AgentWorkspacePage.css";
+
 export const AgentWorkspacePage = () => (
   <div className="agent-page">
     <header className="site-header">

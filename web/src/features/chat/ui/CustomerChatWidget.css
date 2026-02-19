@@ -1,124 +1,7 @@
-@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Sora:wght@500;600;700&display=swap");
-
-:root {
-  --bg-a: #f6f2e8;
-  --bg-b: #dff2ef;
-  --surface: #ffffff;
-  --surface-soft: #f7fafb;
-  --line: #d3dce7;
-  --text-strong: #1f2736;
-  --text-muted: #5f6d83;
-  --accent-1: #ff7a2a;
-  --accent-2: #1a8f8b;
-  --accent-soft: #d3f1f0;
-  --danger-bg: #ffe7df;
-  --danger-text: #7c2a15;
-}
-
-* {
-  box-sizing: border-box;
-}
-
-html,
-body,
-#root {
-  min-height: 100%;
-}
-
-body {
-  margin: 0;
-  font-family: "Manrope", "Segoe UI", sans-serif;
-  color: var(--text-strong);
-  background:
-    radial-gradient(circle at 15% 15%, rgb(255 170 111 / 35%), transparent 45%),
-    radial-gradient(circle at 85% 85%, rgb(94 195 190 / 28%), transparent 40%),
-    linear-gradient(150deg, var(--bg-a), var(--bg-b));
-}
-
-.home-page,
-.agent-page {
-  min-height: 100vh;
-  padding: 1.2rem;
-}
-
-.site-header {
-  max-width: 1200px;
-  margin: 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.brand {
-  font-family: "Sora", "Trebuchet MS", sans-serif;
-  font-weight: 700;
-  font-size: 1.05rem;
-  letter-spacing: 0.02em;
-  text-decoration: none;
-  color: #273550;
-}
-
-.top-nav {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.top-nav-link {
-  text-decoration: none;
-  color: #375275;
-  font-weight: 600;
-  border: 1px solid #c9d5e3;
-  padding: 0.4rem 0.8rem;
-  border-radius: 999px;
-  background: rgb(255 255 255 / 75%);
-}
-
-.hero-shell {
-  max-width: 1200px;
-  margin: 2.8rem auto 0;
-}
-
-.hero-card,
-.agent-card {
-  max-width: 680px;
-  border: 1px solid rgb(226 234 243 / 90%);
-  border-radius: 24px;
-  padding: 2rem;
-  background: linear-gradient(160deg, rgb(255 255 255 / 88%), rgb(255 247 240 / 80%));
-  box-shadow:
-    0 16px 34px rgb(28 37 56 / 12%),
-    inset 0 1px 0 rgb(255 255 255 / 82%);
-}
-
-.hero-kicker {
-  margin: 0 0 0.5rem;
-  color: var(--accent-2);
-  text-transform: uppercase;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  font-size: 0.74rem;
-}
-
-.hero-card h1,
-.agent-card h1 {
-  font-family: "Sora", "Trebuchet MS", sans-serif;
-  font-size: clamp(1.6rem, 3.5vw, 2.3rem);
-  line-height: 1.22;
-  margin: 0;
-}
-
-.hero-card p,
-.agent-card p {
-  margin: 1rem 0 0;
-  color: var(--text-muted);
-  line-height: 1.55;
-}
-
 .chat-widget-root {
   position: fixed;
-  right: 1.1rem;
-  bottom: 1.1rem;
+  right: 1.5rem;
+  bottom: 1.5rem;
   z-index: 120;
   display: grid;
   justify-items: end;
@@ -159,7 +42,7 @@ body {
 }
 
 .chat-panel {
-  width: min(390px, calc(100vw - 1.2rem));
+  width: min(490px, calc(100vw - 1.2rem));
   height: min(620px, calc(100vh - 5.5rem));
   border: 1px solid #d6e0eb;
   border-radius: 22px;
@@ -209,6 +92,9 @@ body {
   color: #355072;
   border-radius: 999px;
   font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
 }
 
@@ -216,6 +102,7 @@ body {
   padding: 0.4rem 0.65rem;
   font-size: 0.74rem;
   font-weight: 700;
+  gap: 0.3rem;
 }
 
 .chat-close-button {
@@ -245,12 +132,17 @@ body {
   border-radius: 16px;
   background: linear-gradient(178deg, #fcfefd, var(--surface-soft));
   padding: 0.7rem;
+  min-height: 430px;
   overflow: auto;
 }
 
 .chat-empty {
   border: 1px dashed #ccd8e4;
   border-radius: 12px;
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   text-align: center;
   color: var(--text-muted);
   background: #ffffff;
@@ -332,9 +224,10 @@ body {
   border: 1px solid #c8d5e4;
   background: #ffffff;
   color: #304a6e;
-  border-radius: 999px;
-  padding: 0.35rem 0.62rem;
-  font-size: 0.76rem;
+  border-radius: 10px;
+  padding: 0.28rem 0.52rem;
+  font-size: 0.7rem;
+  line-height: 1.2;
   font-family: inherit;
   font-weight: 700;
   cursor: pointer;
@@ -375,6 +268,10 @@ body {
   font-size: 0.84rem;
   font-weight: 800;
   padding: 0.6rem 0.85rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.36rem;
   cursor: pointer;
 }
 
@@ -419,27 +316,17 @@ body {
 }
 
 @media (max-width: 760px) {
-  .home-page,
-  .agent-page {
-    padding: 0.9rem;
-  }
-
-  .hero-shell {
-    margin-top: 1.6rem;
-  }
-
-  .hero-card,
-  .agent-card {
-    padding: 1.3rem;
-  }
-
   .chat-widget-root {
-    right: 0.7rem;
-    bottom: 0.7rem;
+    right: 1rem;
+    bottom: 1rem;
   }
 
   .chat-panel {
     width: min(100vw - 0.8rem, 420px);
     height: min(100vh - 4.7rem, 600px);
+  }
+
+  .chat-messages {
+    min-height: 260px;
   }
 }

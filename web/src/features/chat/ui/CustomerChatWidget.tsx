@@ -1,7 +1,9 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FiMessageCircle, FiRefreshCw, FiSend, FiX } from "react-icons/fi";
 
 import type { Message } from "../../../shared/types/chat";
 import { useCustomerChatController } from "../model/useCustomerChatController";
+import "./CustomerChatWidget.css";
 
 const timeFormatter = new Intl.DateTimeFormat("en-US", {
   hour: "2-digit",
@@ -55,7 +57,10 @@ export const CustomerChatWidget = () => {
     if (!isOpen) {
       return;
     }
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    messagesEndRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "end",
+    });
   }, [isAssistantTyping, isOpen, messages]);
 
   const handleSend = async (event: FormEvent<HTMLFormElement>) => {
@@ -79,6 +84,7 @@ export const CustomerChatWidget = () => {
                 onClick={() => void startNewConversation()}
                 disabled={isStartingConversation}
               >
+                <FiRefreshCw aria-hidden="true" />
                 New chat
               </button>
               <button
@@ -87,7 +93,7 @@ export const CustomerChatWidget = () => {
                 onClick={() => setIsOpen(false)}
                 aria-label="Close chat"
               >
-                ✕
+                <FiX aria-hidden="true" />
               </button>
             </div>
           </header>
@@ -107,7 +113,9 @@ export const CustomerChatWidget = () => {
 
             {messages.map((message) => {
               const tone =
-                message.sender_type === "customer" ? "bubble--customer" : "bubble--support";
+                message.sender_type === "customer"
+                  ? "bubble--customer"
+                  : "bubble--support";
 
               return (
                 <article className={`bubble ${tone}`} key={message.id}>
@@ -166,6 +174,7 @@ export const CustomerChatWidget = () => {
               type="submit"
               disabled={!canSend || !draft.trim()}
             >
+              <FiSend aria-hidden="true" />
               {isSending ? "Sending..." : "Send"}
             </button>
           </form>
@@ -179,9 +188,7 @@ export const CustomerChatWidget = () => {
         aria-label={isOpen ? "Close support chat" : "Open support chat"}
       >
         <span className="chat-launcher-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24">
-            <path d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4v-4H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z" />
-          </svg>
+          <FiMessageCircle />
         </span>
         <span className="chat-launcher-label">
           {isOpen ? "Close chat" : "Chat with us"}
