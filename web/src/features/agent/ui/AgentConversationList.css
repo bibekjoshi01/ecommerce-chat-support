@@ -1,0 +1,145 @@
+.agent-list-panel {
+  border: 1px solid #cfdae6;
+  border-radius: 18px;
+  background: linear-gradient(170deg, rgb(255 255 255 / 96%), rgb(246 251 255 / 92%));
+  box-shadow: 0 14px 30px rgb(19 45 70 / 10%);
+  padding: 0.78rem;
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  gap: 0.65rem;
+  min-height: 520px;
+}
+
+.agent-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.agent-list-header h2 {
+  margin: 0;
+  font-size: 0.96rem;
+  font-family: "Sora", "Trebuchet MS", sans-serif;
+}
+
+.agent-list-header span {
+  border-radius: 999px;
+  background: #eaf2fa;
+  color: #365172;
+  min-width: 1.9rem;
+  text-align: center;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.22rem 0.4rem;
+}
+
+.agent-filter-row {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.agent-filter-chip {
+  border: 1px solid #cad8e5;
+  background: #fff;
+  color: #355172;
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: capitalize;
+  padding: 0.22rem 0.5rem;
+  cursor: pointer;
+}
+
+.agent-filter-chip--active {
+  border-color: #4f8ec0;
+  color: #184770;
+  background: #eaf4ff;
+}
+
+.agent-list-body {
+  overflow: auto;
+  display: grid;
+  gap: 0.45rem;
+  align-content: start;
+}
+
+.agent-list-empty {
+  border: 1px dashed #cedbe7;
+  border-radius: 12px;
+  padding: 0.9rem 0.7rem;
+  text-align: center;
+  color: #607186;
+  font-size: 0.84rem;
+}
+
+.agent-conversation-card {
+  border: 1px solid #d3deea;
+  border-radius: 12px;
+  padding: 0.5rem 0.55rem;
+  background: #ffffff;
+  display: grid;
+  gap: 0.4rem;
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.agent-conversation-card--active {
+  border-color: #5f8fb7;
+  box-shadow: 0 0 0 2px rgb(111 160 202 / 25%);
+}
+
+.agent-conversation-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem;
+}
+
+.agent-conversation-session {
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: #2f4c70;
+}
+
+.agent-conversation-row time {
+  font-size: 0.69rem;
+  color: #607188;
+}
+
+.agent-status-pill {
+  border-radius: 999px;
+  padding: 0.15rem 0.45rem;
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.agent-status-pill--automated {
+  background: #edf4fb;
+  color: #355a7f;
+}
+
+.agent-status-pill--agent {
+  background: #daf6ea;
+  color: #0d6a46;
+}
+
+.agent-status-pill--closed {
+  background: #f1f3f5;
+  color: #5a6775;
+}
+
+.agent-unread-pill {
+  min-width: 1.3rem;
+  border-radius: 999px;
+  padding: 0.1rem 0.34rem;
+  font-size: 0.66rem;
+  font-weight: 800;
+  text-align: center;
+  color: #fff;
+  background: linear-gradient(125deg, #ff9f58, #ff6f1a);
+}

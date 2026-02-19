@@ -58,10 +58,21 @@ const chatSlice = createSlice({
       ]);
       state.quickQuestions = action.payload.quick_questions;
     },
+    upsertConversation(state, action: PayloadAction<Conversation>) {
+      state.conversation = action.payload;
+    },
+    upsertMessage(state, action: PayloadAction<Message>) {
+      state.messages = mergeMessages(state.messages, [action.payload]);
+    },
   },
 });
 
-export const { appendExchange, hydrateFromBootstrap, setSessionId } =
-  chatSlice.actions;
+export const {
+  appendExchange,
+  hydrateFromBootstrap,
+  setSessionId,
+  upsertConversation,
+  upsertMessage,
+} = chatSlice.actions;
 
 export default chatSlice.reducer;

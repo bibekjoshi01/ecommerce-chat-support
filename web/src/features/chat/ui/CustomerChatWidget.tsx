@@ -34,6 +34,7 @@ export const CustomerChatWidget = () => {
     isAutomatedMode,
     isConversationClosed,
     isEscalatingToAgent,
+    isRealtimeConnected,
     isSending,
     isStartingConversation,
     messages,
@@ -85,6 +86,11 @@ export const CustomerChatWidget = () => {
             <div>
               <p className="chat-kicker">Live customer support</p>
               <h2>Need help with your order?</h2>
+              {conversation && (
+                <p className="chat-live-indicator">
+                  {isRealtimeConnected ? "Live" : "Reconnecting..."}
+                </p>
+              )}
             </div>
             <div className="chat-panel-actions">
               <button

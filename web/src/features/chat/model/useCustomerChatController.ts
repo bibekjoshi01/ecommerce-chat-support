@@ -1,16 +1,29 @@
 import { FetchBaseQueryError } from "@reduxjs/toolkit/query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useAppDispatch, useAppSelector } from "../../../app/hooks";
+import { buildRealtimeWsUrl } from "../../../shared/lib/realtime";
 import { loadOrCreateSessionId } from "../../../shared/lib/session";
-import type { BotExchangeResponse, Message, MessageKind } from "../../../shared/types/chat";
+import type {
+  BotExchangeResponse,
+  Conversation,
+  Message,
+  MessageKind,
+  RealtimeEnvelope,
+} from "../../../shared/types/chat";
 import {
   useEscalateToAgentMutation,
   useSendQuickReplyMutation,
   useSendTextMessageMutation,
   useStartConversationMutation,
 } from "../api/chatApi";
-import { appendExchange, hydrateFromBootstrap, setSessionId } from "./chatSlice";
+import {
+  appendExchange,
+  hydrateFromBootstrap,
+  setSessionId,
+  upsertConversation,
+  upsertMessage,
+} from "./chatSlice";
 
 const REQUEST_DELAY_MS = 220;
 const ASSISTANT_REPLY_DELAY_MS = 620;
@@ -74,7 +87,38 @@ interface SendFlowInput {
   content: string;
   kind: MessageKind;
   send: () => Promise<BotExchangeResponse>;
+  simulateAssistantReply?: boolean;
 }
+
+const isObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+const isConversation = (value: unknown): value is Conversation => {
+  if (!isObject(value)) {
+    return false;
+  }
+  return (
+    typeof value.id === "string" &&
+    typeof value.customer_session_id === "string" &&
+    typeof value.status === "string" &&
+    typeof value.created_at === "string" &&
+    typeof value.updated_at === "string"
+  );
+};
+
+const isMessage = (value: unknown): value is Message => {
+  if (!isObject(value)) {
+    return false;
+  }
+  return (
+    typeof value.id === "string" &&
+    typeof value.conversation_id === "string" &&
+    typeof value.sender_type === "string" &&
+    typeof value.kind === "string" &&
+    typeof value.content === "string" &&
+    typeof value.created_at === "string"
+  );
+};
 
 export const useCustomerChatController = () => {
   const dispatch = useAppDispatch();
@@ -99,6 +143,8 @@ export const useCustomerChatController = () => {
   const [pendingCustomerMessages, setPendingCustomerMessages] = useState<Message[]>(
     [],
   );
+  const [isRealtimeConnected, setIsRealtimeConnected] = useState(false);
+  const socketRef = useRef<WebSocket | null>(null);
 
   const isSending = isSendingText || isSendingQuickReply || isEscalatingToAgent;
   const isConversationClosed = conversation?.status === "closed";
@@ -141,13 +187,97 @@ export const useCustomerChatController = () => {
     };
   }, [conversation, dispatch, sessionId, startConversation]);
 
+  useEffect(() => {
+    if (!sessionId || !conversation?.id) {
+      return;
+    }
+
+    let closedByCleanup = false;
+    const websocket = new WebSocket(
+      buildRealtimeWsUrl({
+        role: "customer",
+        conversation_id: conversation.id,
+        customer_session_id: sessionId,
+      }),
+    );
+
+    socketRef.current = websocket;
+
+    websocket.onopen = () => {
+      if (closedByCleanup) {
+        return;
+      }
+      setIsRealtimeConnected(true);
+    };
+
+    websocket.onclose = () => {
+      if (!closedByCleanup) {
+        setIsRealtimeConnected(false);
+      }
+    };
+
+    websocket.onerror = () => {
+      setIsRealtimeConnected(false);
+    };
+
+    websocket.onmessage = (event) => {
+      let envelope: RealtimeEnvelope<unknown> | null = null;
+      try {
+        envelope = JSON.parse(event.data) as RealtimeEnvelope<unknown>;
+      } catch (_error) {
+        return;
+      }
+
+      if (!envelope || typeof envelope.event !== "string") {
+        return;
+      }
+
+      if (envelope.event === "conversation.updated") {
+        if (!isObject(envelope.payload)) {
+          return;
+        }
+        const nextConversation = envelope.payload.conversation;
+        if (!isConversation(nextConversation)) {
+          return;
+        }
+        dispatch(upsertConversation(nextConversation));
+        return;
+      }
+
+      if (envelope.event === "message.created") {
+        if (!isObject(envelope.payload)) {
+          return;
+        }
+        const message = envelope.payload.message;
+        if (!isMessage(message)) {
+          return;
+        }
+        dispatch(upsertMessage(message));
+      }
+    };
+
+    return () => {
+      closedByCleanup = true;
+      setIsRealtimeConnected(false);
+      if (socketRef.current === websocket) {
+        socketRef.current = null;
+      }
+      websocket.close();
+    };
+  }, [conversation?.id, dispatch, sessionId]);
+
   const removePendingMessage = (pendingMessageId: string) => {
     setPendingCustomerMessages((current) =>
       current.filter((message) => message.id !== pendingMessageId),
     );
   };
 
-  const runSendFlow = async ({ content, kind, send }: SendFlowInput) => {
+  const runSendFlow = async ({
+    content,
+    kind,
+    send,
+    simulateAssistantReply = true,
+  }: SendFlowInput) => {
     if (!conversation || !sessionId || isConversationClosed) {
       return;
     }
@@ -166,8 +296,10 @@ export const useCustomerChatController = () => {
       const exchange = await send();
       removePendingMessage(pendingMessage.id);
 
-      setIsAssistantTyping(true);
-      await wait(ASSISTANT_REPLY_DELAY_MS);
+      if (simulateAssistantReply) {
+        setIsAssistantTyping(true);
+        await wait(ASSISTANT_REPLY_DELAY_MS);
+      }
 
       dispatch(appendExchange(exchange));
     } catch (error) {
@@ -192,6 +324,7 @@ export const useCustomerChatController = () => {
     await runSendFlow({
       content,
       kind: "text",
+      simulateAssistantReply: false,
       send: () =>
         sendTextMessage({
           conversationId: conversation.id,
@@ -273,6 +406,7 @@ export const useCustomerChatController = () => {
     isAutomatedMode,
     isConversationClosed,
     isEscalatingToAgent,
+    isRealtimeConnected,
     isSending,
     isStartingConversation,
     messages,

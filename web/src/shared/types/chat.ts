@@ -12,6 +12,8 @@ export interface Conversation {
   customer_session_id: string;
   status: ConversationStatus;
   assigned_agent_id: string | null;
+  requested_agent_at?: string | null;
+  closed_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -45,4 +47,39 @@ export interface BotExchangeResponse {
   bot_message: Message;
   quick_questions: QuickQuestion[];
   show_talk_to_agent: boolean;
+}
+
+export interface AgentProfile {
+  id: string;
+  display_name: string;
+  presence: "online" | "offline";
+  max_active_chats: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AgentConversationListResponse {
+  items: Conversation[];
+}
+
+export interface AgentConversationMessagesResponse {
+  conversation: Conversation;
+  messages: Message[];
+}
+
+export interface AgentMessageExchangeResponse {
+  conversation: Conversation;
+  message: Message;
+}
+
+export interface AgentCloseConversationResponse {
+  conversation: Conversation;
+  system_message: Message | null;
+}
+
+export interface RealtimeEnvelope<TPayload = unknown> {
+  event: string;
+  channel?: string;
+  payload: TPayload;
+  sent_at: string;
 }

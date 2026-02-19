@@ -1,0 +1,110 @@
+.agent-workspace-header {
+  border: 1px solid #d3deea;
+  border-radius: 18px;
+  padding: 1rem;
+  background: linear-gradient(145deg, rgb(255 255 255 / 92%), rgb(237 247 255 / 84%));
+  box-shadow:
+    0 12px 28px rgb(16 40 66 / 12%),
+    inset 0 1px 0 rgb(255 255 255 / 86%);
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.agent-workspace-kicker {
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #2f6f8f;
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.agent-workspace-header h1 {
+  margin: 0.2rem 0 0;
+  font-family: "Sora", "Trebuchet MS", sans-serif;
+  font-size: 1.35rem;
+}
+
+.agent-workspace-subtitle {
+  margin: 0.3rem 0 0;
+  color: #51647e;
+  font-size: 0.86rem;
+}
+
+.agent-workspace-controls {
+  min-width: 320px;
+  display: grid;
+  gap: 0.55rem;
+  justify-items: end;
+}
+
+.agent-identity-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid #d1deea;
+  background: rgb(255 255 255 / 84%);
+}
+
+.agent-identity-name {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #2f4764;
+}
+
+.agent-realtime-badge {
+  border-radius: 999px;
+  padding: 0.2rem 0.45rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  background: #ebf2f8;
+  color: #536881;
+}
+
+.agent-realtime-badge--online {
+  background: #daf6ea;
+  color: #0d6a46;
+}
+
+.agent-control-buttons {
+  display: flex;
+  gap: 0.45rem;
+}
+
+.agent-control-button {
+  border: 1px solid #cad7e4;
+  border-radius: 10px;
+  background: #fff;
+  color: #355274;
+  padding: 0.42rem 0.64rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.agent-control-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+@media (max-width: 1040px) {
+  .agent-workspace-header {
+    flex-direction: column;
+  }
+
+  .agent-workspace-controls {
+    min-width: 0;
+    justify-items: stretch;
+  }
+
+  .agent-control-buttons {
+    flex-wrap: wrap;
+  }
+}

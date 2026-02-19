@@ -83,6 +83,13 @@
   font-size: 1rem;
 }
 
+.chat-live-indicator {
+  margin: 0.28rem 0 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #44717a;
+}
+
 .chat-panel-actions {
   display: flex;
   align-items: center;
