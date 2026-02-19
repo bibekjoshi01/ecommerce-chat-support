@@ -62,9 +62,33 @@ class Agent(Base, TimestampMixin):
     )
     max_active_chats: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
 
+    account: Mapped["AgentUser | None"] = relationship(
+        back_populates="agent",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
     conversations: Mapped[list["Conversation"]] = relationship(
         back_populates="assigned_agent"
     )
+
+
+class AgentUser(Base, TimestampMixin):
+    __tablename__ = "agent_users"
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
+    agent_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("agents.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    username: Mapped[str] = mapped_column(String(80), nullable=False, unique=True)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    agent: Mapped[Agent] = relationship(back_populates="account")
 
 
 class Conversation(Base, TimestampMixin):
