@@ -3,13 +3,13 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.utils.conversation_service import (
+from app.services.conversation_service import (
     BotExchange,
     ConversationBootstrap,
     ConversationMessages,
     ConversationService,
 )
-from app.utils.errors import (
+from app.services.errors import (
     ConversationAccessDeniedError,
     ConversationClosedError,
     ConversationModeError,

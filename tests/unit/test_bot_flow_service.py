@@ -4,8 +4,8 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from app.utils.conversation_service import ConversationService
-from app.utils.errors import ConversationAccessDeniedError
+from app.services.conversation_service import ConversationService
+from app.services.errors import ConversationAccessDeniedError
 from app.domain.enums import ConversationStatus, MessageKind, MessageSenderType
 
 

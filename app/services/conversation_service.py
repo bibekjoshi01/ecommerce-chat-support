@@ -3,7 +3,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.utils.errors import (
+from app.services.errors import (
     ConversationAccessDeniedError,
     ConversationClosedError,
     ConversationModeError,
@@ -13,7 +13,11 @@ from app.utils.errors import (
 from app.domain.enums import ConversationStatus, MessageKind, MessageSenderType
 from app.domain.state_machine import ConversationLifecycle
 from app.infra.db.models import Conversation, FaqEntry, Message
-from app.infra.db.repositories import ConversationRepository, FaqRepository, MessageRepository
+from app.infra.db.repositories import (
+    ConversationRepository,
+    FaqRepository,
+    MessageRepository,
+)
 
 
 @dataclass(slots=True)
@@ -61,7 +65,9 @@ class ConversationService:
 
         conversation: Conversation | None = None
         if not force_new:
-            conversation = await self.conversations.get_latest_active_by_session(session_id)
+            conversation = await self.conversations.get_latest_active_by_session(
+                session_id
+            )
 
         if conversation is None:
             conversation = await self.conversations.create(session_id)
@@ -75,7 +81,9 @@ class ConversationService:
             await self.conversations.touch(conversation)
 
         quick_questions = await self.faqs.list_active()
-        conversation_messages = await self.messages.list_by_conversation(conversation.id)
+        conversation_messages = await self.messages.list_by_conversation(
+            conversation.id
+        )
 
         await self.session.commit()
         await self.session.refresh(conversation)
@@ -84,7 +92,9 @@ class ConversationService:
             conversation=conversation,
             quick_questions=quick_questions,
             messages=conversation_messages,
-            show_talk_to_agent=ConversationLifecycle.should_show_talk_to_agent(conversation.status),
+            show_talk_to_agent=ConversationLifecycle.should_show_talk_to_agent(
+                conversation.status
+            ),
         )
 
     async def list_quick_questions(self) -> list[FaqEntry]:
@@ -95,7 +105,9 @@ class ConversationService:
         conversation_id: UUID,
         customer_session_id: str,
     ) -> Conversation:
-        return await self._get_conversation_or_raise(conversation_id, customer_session_id)
+        return await self._get_conversation_or_raise(
+            conversation_id, customer_session_id
+        )
 
     async def get_conversation_messages(
         self,
@@ -106,8 +118,12 @@ class ConversationService:
             conversation_id,
             customer_session_id,
         )
-        conversation_messages = await self.messages.list_by_conversation(conversation_id)
-        return ConversationMessages(conversation=conversation, messages=conversation_messages)
+        conversation_messages = await self.messages.list_by_conversation(
+            conversation_id
+        )
+        return ConversationMessages(
+            conversation=conversation, messages=conversation_messages
+        )
 
     async def send_quick_reply(
         self,
@@ -152,7 +168,9 @@ class ConversationService:
             customer_message=customer_message,
             bot_message=bot_message,
             quick_questions=quick_questions,
-            show_talk_to_agent=ConversationLifecycle.should_show_talk_to_agent(conversation.status),
+            show_talk_to_agent=ConversationLifecycle.should_show_talk_to_agent(
+                conversation.status
+            ),
         )
 
     async def send_customer_text_message(
@@ -180,9 +198,14 @@ class ConversationService:
 
         if faq_match:
             bot_content = faq_match.answer
-            bot_metadata: dict | None = {"faq_slug": faq_match.slug, "show_talk_to_agent": True}
+            bot_metadata: dict | None = {
+                "faq_slug": faq_match.slug,
+                "show_talk_to_agent": True,
+            }
         else:
-            prompt_list = ", ".join([question.question for question in quick_questions[:3]])
+            prompt_list = ", ".join(
+                [question.question for question in quick_questions[:3]]
+            )
             if prompt_list:
                 bot_content = (
                     "I can help with common questions. "
@@ -209,7 +232,9 @@ class ConversationService:
             customer_message=customer_message,
             bot_message=bot_message,
             quick_questions=quick_questions,
-            show_talk_to_agent=ConversationLifecycle.should_show_talk_to_agent(conversation.status),
+            show_talk_to_agent=ConversationLifecycle.should_show_talk_to_agent(
+                conversation.status
+            ),
         )
 
     async def _get_conversation_or_raise(

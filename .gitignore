@@ -7,6 +7,7 @@ __pycache__/
 *.egg-info/
 build/
 dist/
+node_modules/
 
 # Virtual environments
 .venv/
@@ -27,6 +28,9 @@ htmlcov/
 # IDE/editor
 .vscode/
 .idea/
+.pnpm-store/
+npm-debug.log*
+yarn-error.log*
 
 # OS files
 .DS_Store
