@@ -1,55 +1,90 @@
-# E-commerce Chat System
+# E-commerce Support Chat System
 
-This repository now includes:
+Implementation for an e-commerce support chat platform.
 
-- Layered Python backend (FastAPI + SQLAlchemy + Alembic)
-- Customer bot flow (`automated -> agent -> closed`) with persistent chat history
-- Minimal frontend app (`React + TypeScript + RTK Query + Vite`) for customer chat
-- Architecture docs in `docs/architecture`
+Implemented flow:
 
-## Why React + RTK Query + Vite for this case
+- Customer conversation lifecycle: `automated -> agent -> closed`
+- FAQ-backed instant bot replies
+- Escalation to human agent
+- Agent dashboard (active/closed/all workspace views)
+- Realtime updates via WebSocket
+- PostgreSQL persistence with Alembic migrations
 
-- `React` gives clean component boundaries and long-term maintainability.
-- `RTK Query` gives typed API integration, caching, and mutation flows with less custom code.
-- `Vite` keeps setup and dev feedback fast while staying production-ready.
+## Tech Stack
 
-This is a strong baseline for a technical lead assignment because it demonstrates:
+Backend:
 
-- clear separation of concerns (API/state/UI layers),
-- typed contracts across frontend/backend,
-- extension-ready structure for future agent dashboard and real-time events.
+- FastAPI
+- SQLAlchemy async + asyncpg
+- Alembic
+- PostgreSQL
+- Redis (for realtime/pubsub evolution path)
 
-## Frontend scope (minimal required)
+Frontend:
 
-- Home page with floating support chat launcher (bottom-right widget pattern)
-- Start/resume customer conversation by session
-- Send free-text customer messages and quick-reply FAQ prompts
-- Simulated real support feel with short request/reply delay + typing state
-- Router-ready app with `/` (customer), `/agent/login`, and protected `/agent`
+- React + TypeScript
+- Redux Toolkit + RTK Query
+- Vite
 
-## Run locally
+## Repository Layout
 
-### 1) Backend setup
+```text
+app/                    Backend source
+  api/                  REST and websocket routes
+  domain/               enums + state machine
+  infra/                db models/repos + realtime hub + seeding
+  services/             application services
+alembic/                DB migrations
+tests/                  Unit tests
+web/                    Frontend app
+docs/architecture/      System and API design notes
+```
+
+## Prerequisites
+
+- Python 3.11+
+- Node.js 18+
+- Docker + Docker Compose (recommended for Postgres/Redis)
+
+## Quick Start (Recommended: Docker Postgres + Redis)
+
+1. Create virtual environment and install backend deps.
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -e '.[dev]'
+```
+
+If you use `zsh`, keep the extras quoted exactly: `'.[dev]'`.
+
+2. Configure environment.
+
+```bash
 cp .env.example .env
 ```
 
-### 2) Start infrastructure + backend
+3. Start infra and apply migrations.
 
 ```bash
 docker compose up -d postgres redis
 alembic upgrade head
-python run_seed.py
-uvicorn app.main:app --reload
 ```
 
-If you also run a local Postgres service, prefer `POSTGRES_HOST=127.0.0.1` in `.env`.
+4. Seed FAQ + default agent accounts.
 
-### 3) Start frontend
+```bash
+python run_seed.py
+```
+
+5. Run backend.
+
+```bash
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+6. Run frontend.
 
 ```bash
 cd web
@@ -57,60 +92,74 @@ npm install
 npm run dev
 ```
 
-Frontend runs at `http://127.0.0.1:5173` and proxies `/api` to FastAPI (`http://127.0.0.1:8000`).
+## Access URLs
 
-## Frontend architecture (minimal, but strong)
+- Frontend: `http://127.0.0.1:5173`
+- API docs: `http://127.0.0.1:8000/docs`
+- Health: `http://127.0.0.1:8000/api/v1/health`
+- DB health: `http://127.0.0.1:8000/api/v1/health/db`
 
-```text
-web/src
-  app/                # store + router shell
-  features/chat/
-    api/              # RTK Query endpoints for customer chat
-    model/            # chat slice + controller hook
-    ui/               # customer chat widget
-  pages/              # route-level pages
-  shared/
-    lib/              # session-id utility
-    types/            # frontend API/domain contracts
+## Seeded Agent Accounts (Development)
+
+Created by `python run_seed.py`:
+
+- `bibek.joshi` / `BibekJoshi@123!`
+- `john.doe` / `AgentPass123!`
+- `admin` / `Admin@123`
+
+## Run Tests
+
+Backend tests:
+
+```bash
+./venv/bin/pytest -q
 ```
 
-## Bot flow endpoints (implemented)
+Frontend typecheck + production build:
 
-- `GET /api/v1/customer/quick-questions`
-- `POST /api/v1/customer/conversations/start`
-- `GET /api/v1/customer/conversations/{conversation_id}`
-- `GET /api/v1/customer/conversations/{conversation_id}/messages`
-- `POST /api/v1/customer/conversations/{conversation_id}/quick-replies/{faq_slug}`
-- `POST /api/v1/customer/conversations/{conversation_id}/messages`
-- `POST /api/v1/customer/conversations/{conversation_id}/escalate`
+```bash
+cd web
+npm run build
+```
 
-Conversation-specific customer endpoints require:
+## Local Postgres Instead of Docker (Optional)
 
-- Header: `X-Customer-Session-Id: <customer_session_id>`
+If you run PostgreSQL locally, set `.env` accordingly:
 
-## Agent endpoints (implemented)
+- `POSTGRES_HOST`
+- `POSTGRES_PORT`
+- `POSTGRES_DB`
+- `POSTGRES_USER`
+- `POSTGRES_PASSWORD`
 
-- `POST /api/v1/agent/auth/login`
-- `POST /api/v1/agent/register`
-- `GET /api/v1/agent/me`
-- `GET /api/v1/agent/conversations?status=automated|agent|closed`
-- `GET /api/v1/agent/conversations/{conversation_id}/messages`
-- `POST /api/v1/agent/conversations/{conversation_id}/messages`
-- `POST /api/v1/agent/conversations/{conversation_id}/close`
+Then run:
 
-Agent-protected endpoints require:
+```bash
+alembic upgrade head
+python run_seed.py
+uvicorn app.main:app --reload --port 8000
+```
 
-- Header: `Authorization: Bearer <access_token>`
+## Troubleshooting
 
-## Seeded agent accounts (dev)
+`zsh: no matches found: .[dev]`
 
-`python run_seed.py` creates default FAQ entries and these agent logins:
+- Use: `pip install -e '.[dev]'`
 
-## Realtime websocket endpoint
+`asyncpg.exceptions.InvalidAuthorizationSpecificationError: role "chat_user" does not exist`
 
-- `WS /api/v1/realtime/ws`
+- You likely have an old Postgres volume with mismatched credentials.
+- Reset local containers/volume and re-run migrations:
 
-Query patterns:
+```bash
+docker compose down -v
+docker compose up -d postgres redis
+alembic upgrade head
+python run_seed.py
+```
 
-- Customer stream: `role=customer&conversation_id=<uuid>&customer_session_id=<session_id>`
-- Agent stream: `role=agent&access_token=<access_token>[&conversation_id=<uuid>]`
+## Architecture Docs
+
+- `docs/architecture/01-system-architecture.md`
+- `docs/architecture/02-api-and-events.md`
+- `docs/architecture/03-roadmap.md`
