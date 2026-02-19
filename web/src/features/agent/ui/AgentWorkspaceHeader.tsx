@@ -37,7 +37,9 @@ export const AgentWorkspaceHeader = ({
             isRealtimeConnected ? "agent-realtime-badge--online" : ""
           }`}
         >
-          {isRealtimeConnected ? "Realtime: connected" : "Realtime: reconnecting"}
+          {isRealtimeConnected
+            ? "Realtime: connected"
+            : "Realtime: reconnecting"}
         </span>
       </div>
 
@@ -52,7 +54,11 @@ export const AgentWorkspaceHeader = ({
           {isRefreshingConversations ? "Refreshing..." : "Refresh"}
         </button>
 
-        <button className="agent-control-button" type="button" onClick={onSignOut}>
+        <button
+          className="agent-control-button"
+          type="button"
+          onClick={onSignOut}
+        >
           <FiLogOut aria-hidden="true" />
           Sign out
         </button>

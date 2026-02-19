@@ -29,7 +29,8 @@ interface AgentSendMessageRequest extends AgentConversationScopedRequest {
 }
 
 const resolveAgentBaseUrl = (): string => {
-  const customerBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "/api/v1/customer";
+  const customerBaseUrl =
+    import.meta.env.VITE_API_BASE_URL ?? "/api/v1/customer";
   return customerBaseUrl.replace(/\/customer\/?$/, "/agent");
 };
 
@@ -73,7 +74,8 @@ export const agentApi = createApi({
       AgentConversationMessagesResponse,
       AgentConversationScopedRequest
     >({
-      query: ({ conversationId }) => `/conversations/${conversationId}/messages`,
+      query: ({ conversationId }) =>
+        `/conversations/${conversationId}/messages`,
       providesTags: (_result, _error, request) => [
         { type: "AgentConversationMessages", id: request.conversationId },
       ],

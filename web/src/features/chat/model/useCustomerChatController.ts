@@ -29,6 +29,7 @@ const REQUEST_DELAY_MS = 220;
 const ASSISTANT_REPLY_DELAY_MS = 620;
 const WS_RETRY_BASE_DELAY_MS = 500;
 const WS_RETRY_MAX_DELAY_MS = 5000;
+const AGENT_TYPING_RESET_MS = 1800;
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -141,17 +142,23 @@ export const useCustomerChatController = () => {
 
   const [draft, setDraft] = useState("");
   const [uiError, setUiError] = useState<string | null>(null);
-  const [isAssistantTyping, setIsAssistantTyping] = useState(false);
+  const [isBotTyping, setIsBotTyping] = useState(false);
+  const [isAgentTyping, setIsAgentTyping] = useState(false);
   const [pendingCustomerMessages, setPendingCustomerMessages] = useState<Message[]>(
     [],
   );
   const [isRealtimeConnected, setIsRealtimeConnected] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
+  const agentTypingResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const conversationStatusRef = useRef<Conversation["status"] | null>(null);
 
   const isSending = isSendingText || isSendingQuickReply || isEscalatingToAgent;
   const isConversationClosed = conversation?.status === "closed";
   const isAutomatedMode = conversation?.status === "automated";
   const isAgentMode = conversation?.status === "agent";
+  conversationStatusRef.current = conversation?.status ?? null;
 
   useEffect(() => {
     if (!sessionId) {
@@ -275,6 +282,45 @@ export const useCustomerChatController = () => {
             return;
           }
           dispatch(upsertConversation(nextConversation));
+          if (nextConversation.status !== "agent") {
+            if (agentTypingResetTimerRef.current) {
+              clearTimeout(agentTypingResetTimerRef.current);
+              agentTypingResetTimerRef.current = null;
+            }
+            setIsAgentTyping(false);
+          }
+          return;
+        }
+
+        if (envelope.event === "agent.typing") {
+          if (!isObject(envelope.payload)) {
+            return;
+          }
+          const payloadConversationId = envelope.payload.conversation_id;
+          const isTyping = envelope.payload.is_typing;
+          if (
+            typeof payloadConversationId !== "string" ||
+            payloadConversationId !== conversation.id ||
+            typeof isTyping !== "boolean"
+          ) {
+            return;
+          }
+          if (conversationStatusRef.current !== "agent") {
+            return;
+          }
+
+          if (agentTypingResetTimerRef.current) {
+            clearTimeout(agentTypingResetTimerRef.current);
+            agentTypingResetTimerRef.current = null;
+          }
+
+          setIsAgentTyping(isTyping);
+          if (isTyping) {
+            agentTypingResetTimerRef.current = setTimeout(() => {
+              setIsAgentTyping(false);
+              agentTypingResetTimerRef.current = null;
+            }, AGENT_TYPING_RESET_MS);
+          }
           return;
         }
 
@@ -287,6 +333,16 @@ export const useCustomerChatController = () => {
             return;
           }
           dispatch(upsertMessage(message));
+          if (message.sender_type === "bot" || message.sender_type === "system") {
+            setIsBotTyping(false);
+          }
+          if (message.sender_type === "agent") {
+            if (agentTypingResetTimerRef.current) {
+              clearTimeout(agentTypingResetTimerRef.current);
+              agentTypingResetTimerRef.current = null;
+            }
+            setIsAgentTyping(false);
+          }
         }
       };
     };
@@ -304,8 +360,24 @@ export const useCustomerChatController = () => {
         socketRef.current = null;
       }
       activeSocket?.close();
+      if (agentTypingResetTimerRef.current) {
+        clearTimeout(agentTypingResetTimerRef.current);
+        agentTypingResetTimerRef.current = null;
+      }
+      setIsAgentTyping(false);
     };
   }, [conversation?.id, dispatch, sessionId]);
+
+  useEffect(() => {
+    if (isAgentMode) {
+      return;
+    }
+    if (agentTypingResetTimerRef.current) {
+      clearTimeout(agentTypingResetTimerRef.current);
+      agentTypingResetTimerRef.current = null;
+    }
+    setIsAgentTyping(false);
+  }, [isAgentMode]);
 
   const removePendingMessage = (pendingMessageId: string) => {
     setPendingCustomerMessages((current) =>
@@ -333,12 +405,14 @@ export const useCustomerChatController = () => {
     setPendingCustomerMessages((current) => [...current, pendingMessage]);
 
     try {
+      if (simulateAssistantReply) {
+        setIsBotTyping(true);
+      }
       await wait(REQUEST_DELAY_MS);
       const exchange = await send();
       removePendingMessage(pendingMessage.id);
 
-      if (simulateAssistantReply) {
-        setIsAssistantTyping(true);
+      if (simulateAssistantReply && exchange.bot_message) {
         await wait(ASSISTANT_REPLY_DELAY_MS);
       }
 
@@ -347,7 +421,7 @@ export const useCustomerChatController = () => {
       removePendingMessage(pendingMessage.id);
       setUiError(toErrorMessage(error));
     } finally {
-      setIsAssistantTyping(false);
+      setIsBotTyping(false);
     }
   };
 
@@ -419,7 +493,12 @@ export const useCustomerChatController = () => {
 
     setUiError(null);
     setPendingCustomerMessages([]);
-    setIsAssistantTyping(false);
+    setIsBotTyping(false);
+    setIsAgentTyping(false);
+    if (agentTypingResetTimerRef.current) {
+      clearTimeout(agentTypingResetTimerRef.current);
+      agentTypingResetTimerRef.current = null;
+    }
 
     try {
       const response = await startConversation({
@@ -437,6 +516,7 @@ export const useCustomerChatController = () => {
     () => sortByCreatedAt([...storedMessages, ...pendingCustomerMessages]),
     [pendingCustomerMessages, storedMessages],
   );
+  const isAssistantTyping = isAgentMode ? isAgentTyping : isBotTyping;
 
   return {
     conversation,

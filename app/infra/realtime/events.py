@@ -7,3 +7,4 @@ class RealtimeEvent(str, Enum):
     AGENT_ASSIGNED = "agent.assigned"
     CHAT_CLOSED = "chat.closed"
     AGENT_PRESENCE_CHANGED = "agent.presence.changed"
+    AGENT_TYPING = "agent.typing"

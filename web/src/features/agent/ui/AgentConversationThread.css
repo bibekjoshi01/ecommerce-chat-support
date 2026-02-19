@@ -5,7 +5,8 @@
   box-shadow: 0 14px 30px rgb(19 45 70 / 10%);
   display: grid;
   grid-template-rows: auto 1fr auto;
-  min-height: 520px;
+  height: 100%;
+  min-height: 0;
 }
 
 .agent-thread-header {
@@ -58,7 +59,10 @@
   border-radius: 14px;
   padding: 0.7rem;
   background: linear-gradient(175deg, #fbfeff, #f4f9ff);
-  overflow: auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scroll-behavior: smooth;
 }
 
 .agent-thread-empty {
@@ -80,6 +84,7 @@
   border-radius: 14px;
   padding: 0.55rem 0.65rem;
   margin-bottom: 0.5rem;
+  animation: agent-message-slide 220ms ease both;
 }
 
 .agent-thread-bubble p {
@@ -158,4 +163,15 @@
 .agent-thread-send:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+@keyframes agent-message-slide {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }

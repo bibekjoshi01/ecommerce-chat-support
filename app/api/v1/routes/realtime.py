@@ -8,7 +8,7 @@ from starlette.websockets import WebSocketDisconnect
 from app.core.config import get_settings
 from app.core.db import get_session_factory
 from app.core.security import decode_agent_access_token
-from app.domain.enums import AgentPresence
+from app.domain.enums import AgentPresence, ConversationStatus
 from app.infra.db.repositories import (
     AgentRepository,
     AgentUserRepository,
@@ -19,6 +19,7 @@ from app.infra.realtime.channels import (
     agent_queue_channel,
     conversation_channel,
 )
+from app.infra.realtime.events import RealtimeEvent
 
 router = APIRouter()
 settings = get_settings()
@@ -53,6 +54,7 @@ async def realtime_ws(websocket: WebSocket) -> None:
     requested_agent_id = _parse_uuid(websocket.query_params.get("agent_id"))
     customer_session_id = websocket.query_params.get("customer_session_id", "").strip()
     tracked_agent_id: UUID | None = None
+    tracked_agent_display_name = "Support agent"
 
     initial_channels: list[str] = []
 
@@ -123,6 +125,7 @@ async def realtime_ws(websocket: WebSocket) -> None:
             if agent is None:
                 await websocket.close(code=1008, reason="Agent not found")
                 return
+            tracked_agent_display_name = agent.display_name
 
             if requested_conversation_id is not None:
                 conversation = await conversations.get_by_id(requested_conversation_id)
@@ -292,6 +295,76 @@ async def realtime_ws(websocket: WebSocket) -> None:
                         "payload": {"channel": channel},
                         "sent_at": datetime.now(UTC).isoformat(),
                     }
+                )
+                continue
+
+            if action == "typing":
+                parsed_conversation_id = _parse_uuid(message.get("conversation_id"))
+                is_typing = message.get("is_typing")
+                if parsed_conversation_id is None:
+                    await websocket.send_json(
+                        {
+                            "event": "system.error",
+                            "payload": {"detail": "Invalid conversation_id"},
+                            "sent_at": datetime.now(UTC).isoformat(),
+                        }
+                    )
+                    continue
+                if not isinstance(is_typing, bool):
+                    await websocket.send_json(
+                        {
+                            "event": "system.error",
+                            "payload": {"detail": "is_typing must be a boolean"},
+                            "sent_at": datetime.now(UTC).isoformat(),
+                        }
+                    )
+                    continue
+
+                async with session_factory() as session:
+                    conversations = ConversationRepository(session)
+                    conversation = await conversations.get_by_id(parsed_conversation_id)
+                    if conversation is None:
+                        await websocket.send_json(
+                            {
+                                "event": "system.error",
+                                "payload": {"detail": "Conversation not found"},
+                                "sent_at": datetime.now(UTC).isoformat(),
+                            }
+                        )
+                        continue
+                    if conversation.status != ConversationStatus.AGENT:
+                        await websocket.send_json(
+                            {
+                                "event": "system.error",
+                                "payload": {
+                                    "detail": "Typing is only supported in agent mode conversations"
+                                },
+                                "sent_at": datetime.now(UTC).isoformat(),
+                            }
+                        )
+                        continue
+                    if (
+                        conversation.assigned_agent_id is not None
+                        and conversation.assigned_agent_id != requested_agent_id
+                    ):
+                        await websocket.send_json(
+                            {
+                                "event": "system.error",
+                                "payload": {"detail": "Conversation access denied"},
+                                "sent_at": datetime.now(UTC).isoformat(),
+                            }
+                        )
+                        continue
+
+                await hub.publish(
+                    channels=[conversation_channel(parsed_conversation_id)],
+                    event=RealtimeEvent.AGENT_TYPING,
+                    payload={
+                        "conversation_id": str(parsed_conversation_id),
+                        "agent_id": str(requested_agent_id),
+                        "agent_display_name": tracked_agent_display_name,
+                        "is_typing": is_typing,
+                    },
                 )
                 continue
 

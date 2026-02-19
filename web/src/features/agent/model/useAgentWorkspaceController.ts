@@ -36,6 +36,7 @@ import {
 
 const WS_RETRY_BASE_DELAY_MS = 500;
 const WS_RETRY_MAX_DELAY_MS = 5000;
+const AGENT_TYPING_IDLE_MS = 1200;
 
 const toErrorMessage = (error: unknown): string => {
   if (!error || typeof error !== "object") {
@@ -119,6 +120,11 @@ export const useAgentWorkspaceController = () => {
   const subscribedConversationIdRef = useRef<string | null>(null);
   const selectedConversationIdRef = useRef<string | null>(null);
   const profileRef = useRef<AgentProfile | null>(null);
+  const typingStateRef = useRef<{ conversationId: string | null; isTyping: boolean }>({
+    conversationId: null,
+    isTyping: false,
+  });
+  const typingStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const {
     agentId,
@@ -133,11 +139,55 @@ export const useAgentWorkspaceController = () => {
   selectedConversationIdRef.current = selectedConversationId;
   profileRef.current = profile;
 
+  const clearTypingTimer = useCallback(() => {
+    if (typingStopTimerRef.current) {
+      clearTimeout(typingStopTimerRef.current);
+      typingStopTimerRef.current = null;
+    }
+  }, []);
+
+  const sendTypingSignal = useCallback(
+    (conversationId: string, isTyping: boolean) => {
+      const current = typingStateRef.current;
+      if (current.conversationId === conversationId && current.isTyping === isTyping) {
+        return;
+      }
+
+      const websocket = socketRef.current;
+      if (!websocket || websocket.readyState !== WebSocket.OPEN) {
+        if (!isTyping) {
+          typingStateRef.current = { conversationId: null, isTyping: false };
+        }
+        return;
+      }
+
+      try {
+        websocket.send(
+          JSON.stringify({
+            action: "typing",
+            conversation_id: conversationId,
+            is_typing: isTyping,
+          }),
+        );
+        typingStateRef.current = isTyping
+          ? { conversationId, isTyping: true }
+          : { conversationId: null, isTyping: false };
+      } catch (_error) {
+        if (!isTyping) {
+          typingStateRef.current = { conversationId: null, isTyping: false };
+        }
+      }
+    },
+    [],
+  );
+
   const signOut = useCallback(() => {
     clearStoredAgentSession();
     setDraft("");
     setUiError(null);
     setIsRealtimeConnected(false);
+    clearTypingTimer();
+    typingStateRef.current = { conversationId: null, isTyping: false };
     if (socketRef.current) {
       socketRef.current.close();
       socketRef.current = null;
@@ -145,7 +195,7 @@ export const useAgentWorkspaceController = () => {
     dispatch(clearAgentIdentity());
     dispatch(resetAgentWorkspace());
     navigate("/agent/login", { replace: true });
-  }, [dispatch, navigate]);
+  }, [clearTypingTimer, dispatch, navigate]);
 
   const selectedConversation = useMemo(
     () =>
@@ -348,6 +398,8 @@ export const useAgentWorkspaceController = () => {
         }
         setIsRealtimeConnected(false);
         setLocalPresence("offline");
+        clearTypingTimer();
+        typingStateRef.current = { conversationId: null, isTyping: false };
         subscribedConversationIdRef.current = null;
 
         if (event.code === 1008) {
@@ -420,6 +472,8 @@ export const useAgentWorkspaceController = () => {
     return () => {
       closedByCleanup = true;
       setIsRealtimeConnected(false);
+      clearTypingTimer();
+      typingStateRef.current = { conversationId: null, isTyping: false };
       if (reconnectTimer) {
         clearTimeout(reconnectTimer);
       }
@@ -429,7 +483,50 @@ export const useAgentWorkspaceController = () => {
       }
       activeSocket?.close();
     };
-  }, [agentId, dispatch, signOut]);
+  }, [agentId, clearTypingTimer, dispatch, signOut]);
+
+  useEffect(() => {
+    const activeConversationId = selectedConversationId;
+    const currentTypingState = typingStateRef.current;
+    const trimmedDraft = draft.trim();
+    const isConversationClosed = selectedConversation?.status === "closed";
+
+    if (
+      currentTypingState.conversationId &&
+      currentTypingState.conversationId !== activeConversationId
+    ) {
+      sendTypingSignal(currentTypingState.conversationId, false);
+    }
+
+    clearTypingTimer();
+
+    if (
+      !activeConversationId ||
+      !isRealtimeConnected ||
+      isConversationClosed ||
+      !trimmedDraft
+    ) {
+      if (activeConversationId) {
+        sendTypingSignal(activeConversationId, false);
+      } else {
+        typingStateRef.current = { conversationId: null, isTyping: false };
+      }
+      return;
+    }
+
+    sendTypingSignal(activeConversationId, true);
+    typingStopTimerRef.current = setTimeout(() => {
+      sendTypingSignal(activeConversationId, false);
+      typingStopTimerRef.current = null;
+    }, AGENT_TYPING_IDLE_MS);
+  }, [
+    clearTypingTimer,
+    draft,
+    isRealtimeConnected,
+    selectedConversation?.status,
+    selectedConversationId,
+    sendTypingSignal,
+  ]);
 
   useEffect(() => {
     const websocket = socketRef.current;
@@ -480,6 +577,8 @@ export const useAgentWorkspaceController = () => {
       return;
     }
     setUiError(null);
+    clearTypingTimer();
+    sendTypingSignal(selectedConversationId, false);
 
     try {
       const response = await sendAgentMessage({

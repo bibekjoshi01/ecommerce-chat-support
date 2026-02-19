@@ -55,6 +55,7 @@ export const CustomerChatWidget = () => {
     isAutomatedMode &&
     !isConversationClosed &&
     !isEscalatingToAgent;
+  const typingLabel = isAgentMode ? "Agent is typing..." : "Support is typing...";
 
   const inputPlaceholder = useMemo(() => {
     if (isConversationClosed) {
@@ -158,7 +159,7 @@ export const CustomerChatWidget = () => {
             {isAssistantTyping && (
               <article className="bubble bubble--support bubble--typing">
                 <div className="bubble-meta">
-                  <time>typing...</time>
+                  <time>{typingLabel}</time>
                 </div>
                 <p className="typing-dots">
                   <span />
