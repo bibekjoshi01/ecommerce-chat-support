@@ -4,7 +4,8 @@ from fastapi import FastAPI
 
 from app.api.router import api_router
 from app.core.config import get_settings
-from app.core.db import init_engine, close_engine
+from app.core.db import close_engine, init_engine
+from app.infra.realtime import InMemoryRealtimeHub
 
 settings = get_settings()
 
@@ -14,6 +15,7 @@ async def lifespan(app: FastAPI):
     # Initialize infrastructure
     engine = init_engine()
     app.state.db_engine = engine
+    app.state.realtime_hub = InMemoryRealtimeHub()
 
     yield
 

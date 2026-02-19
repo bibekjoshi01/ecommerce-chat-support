@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import Select, func, or_, select
+from sqlalchemy import Select, and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.enums import (
@@ -54,6 +54,39 @@ class ConversationRepository:
         )
         result = await self.session.execute(stmt)
         return int(result.scalar_one() or 0)
+
+    async def list_for_agent_workspace(
+        self,
+        agent_id: UUID,
+        status_filter: ConversationStatus | None = None,
+        limit: int = 100,
+    ) -> list[Conversation]:
+        visibility = or_(
+            Conversation.assigned_agent_id == agent_id,
+            and_(
+                Conversation.status == ConversationStatus.AGENT,
+                Conversation.assigned_agent_id.is_(None),
+            ),
+        )
+        criteria = [visibility]
+        if status_filter is not None:
+            criteria.append(Conversation.status == status_filter)
+
+        stmt: Select[tuple[Conversation]] = (
+            select(Conversation)
+            .where(*criteria)
+            .order_by(Conversation.updated_at.desc(), Conversation.id.asc())
+            .limit(limit)
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def assign_agent(self, conversation: Conversation, agent_id: UUID) -> None:
+        conversation.assigned_agent_id = agent_id
+        conversation.requested_agent_at = conversation.requested_agent_at or datetime.now(
+            UTC
+        )
+        await self.session.flush()
 
 
 class MessageRepository:
@@ -166,3 +199,8 @@ class AgentRepository:
         await self.session.flush()
         await self.session.refresh(agent)
         return agent
+
+    async def update_presence(self, agent: Agent, presence: AgentPresence) -> None:
+        agent.presence = presence
+        agent.updated_at = datetime.now(UTC)
+        await self.session.flush()

@@ -81,7 +81,31 @@ frontend/src
 - `GET /api/v1/customer/conversations/{conversation_id}/messages`
 - `POST /api/v1/customer/conversations/{conversation_id}/quick-replies/{faq_slug}`
 - `POST /api/v1/customer/conversations/{conversation_id}/messages`
+- `POST /api/v1/customer/conversations/{conversation_id}/escalate`
 
 Conversation-specific customer endpoints require:
 
 - Header: `X-Customer-Session-Id: <customer_session_id>`
+
+## Agent endpoints (implemented)
+
+- `POST /api/v1/agent/register`
+- `GET /api/v1/agent/me`
+- `POST /api/v1/agent/presence`
+- `GET /api/v1/agent/conversations?status=automated|agent|closed`
+- `GET /api/v1/agent/conversations/{conversation_id}/messages`
+- `POST /api/v1/agent/conversations/{conversation_id}/messages`
+- `POST /api/v1/agent/conversations/{conversation_id}/close`
+
+Agent-protected endpoints require:
+
+- Header: `X-Agent-Id: <agent_id>`
+
+## Realtime websocket endpoint
+
+- `WS /api/v1/realtime/ws`
+
+Query patterns:
+
+- Customer stream: `role=customer&conversation_id=<uuid>&customer_session_id=<session_id>`
+- Agent stream: `role=agent&agent_id=<uuid>[&conversation_id=<uuid>]`

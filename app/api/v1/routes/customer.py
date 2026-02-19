@@ -1,8 +1,19 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.db import get_db_session
+from app.schemas.customer_chat import (
+    BotExchangeResponse,
+    ConversationBootstrapResponse,
+    ConversationMessagesResponse,
+    ConversationResponse,
+    CustomerTextMessageRequest,
+    QuickQuestionResponse,
+    StartConversationRequest,
+)
+from app.schemas.message import MessageResponse
 from app.services.conversation_service import (
     BotExchange,
     ConversationBootstrap,
@@ -16,25 +27,16 @@ from app.services.errors import (
     ConversationNotFoundError,
     FaqNotFoundError,
 )
-from app.core.db import get_db_session
-from app.schemas.customer_chat import (
-    BotExchangeResponse,
-    ConversationBootstrapResponse,
-    ConversationMessagesResponse,
-    ConversationResponse,
-    CustomerTextMessageRequest,
-    QuickQuestionResponse,
-    StartConversationRequest,
-)
-from app.schemas.message import MessageResponse
 
 router = APIRouter()
 
 
 async def get_conversation_service(
+    request: Request,
     session: AsyncSession = Depends(get_db_session),
 ) -> ConversationService:
-    return ConversationService(session)
+    realtime = getattr(request.app.state, "realtime_hub", None)
+    return ConversationService(session=session, realtime=realtime)
 
 
 async def get_customer_session_id(

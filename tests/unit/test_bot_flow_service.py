@@ -4,9 +4,14 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from app.domain.enums import (
+    AgentPresence,
+    ConversationStatus,
+    MessageKind,
+    MessageSenderType,
+)
 from app.services.conversation_service import ConversationService
 from app.services.errors import ConversationAccessDeniedError
-from app.domain.enums import ConversationStatus, MessageKind, MessageSenderType
 
 
 class DummySession:
@@ -24,6 +29,7 @@ class FakeConversation:
     status: ConversationStatus
     assigned_agent_id: UUID | None = None
     requested_agent_at: datetime | None = None
+    closed_at: datetime | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
@@ -54,6 +60,9 @@ class FakeAgent:
     id: UUID
     display_name: str
     max_active_chats: int
+    presence: AgentPresence = AgentPresence.ONLINE
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 class FakeConversationRepository:
@@ -366,7 +375,7 @@ async def test_escalate_to_agent_switches_mode_and_assigns_agent(
 
 
 @pytest.mark.asyncio
-async def test_send_text_in_agent_mode_returns_agent_reply(
+async def test_send_text_in_agent_mode_returns_delivery_event(
     service: ConversationService,
 ) -> None:
     bootstrap = await service.start_customer_conversation(
@@ -386,5 +395,6 @@ async def test_send_text_in_agent_mode_returns_agent_reply(
 
     assert exchange.conversation.status == ConversationStatus.AGENT
     assert exchange.customer_message.sender_type == MessageSenderType.CUSTOMER
-    assert exchange.bot_message.sender_type == MessageSenderType.AGENT
+    assert exchange.bot_message.sender_type == MessageSenderType.SYSTEM
+    assert exchange.bot_message.kind == MessageKind.EVENT
     assert exchange.show_talk_to_agent is False

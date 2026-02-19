@@ -1,16 +1,10 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.errors import (
-    ConversationAccessDeniedError,
-    ConversationClosedError,
-    ConversationModeError,
-    ConversationNotFoundError,
-    FaqNotFoundError,
-)
 from app.domain.enums import (
     ConversationStatus,
     MessageKind,
@@ -24,6 +18,16 @@ from app.infra.db.repositories import (
     ConversationRepository,
     FaqRepository,
     MessageRepository,
+)
+from app.infra.realtime.channels import agent_queue_channel, conversation_channel
+from app.infra.realtime.events import RealtimeEvent
+from app.infra.realtime.publisher import NoopRealtimePublisher, RealtimePublisher
+from app.services.errors import (
+    ConversationAccessDeniedError,
+    ConversationClosedError,
+    ConversationModeError,
+    ConversationNotFoundError,
+    FaqNotFoundError,
 )
 
 
@@ -58,12 +62,14 @@ class ConversationService:
         messages: MessageRepository | None = None,
         faqs: FaqRepository | None = None,
         agents: AgentRepository | None = None,
+        realtime: RealtimePublisher | None = None,
     ) -> None:
         self.session = session
         self.conversations = conversations or ConversationRepository(session)
         self.messages = messages or MessageRepository(session)
         self.faqs = faqs or FaqRepository(session)
         self.agents = agents or AgentRepository(session)
+        self.realtime = realtime or NoopRealtimePublisher()
 
     async def start_customer_conversation(
         self,
@@ -175,6 +181,10 @@ class ConversationService:
         await self.session.commit()
         await self.session.refresh(conversation)
 
+        await self._emit_message_created(customer_message)
+        await self._emit_message_created(bot_message)
+        await self._emit_conversation_updated(conversation)
+
         return BotExchange(
             conversation=conversation,
             customer_message=customer_message,
@@ -207,27 +217,32 @@ class ConversationService:
 
         if conversation.status == ConversationStatus.AGENT:
             assigned_agent = await self._resolve_assigned_agent(conversation)
-            agent_display_name = assigned_agent.display_name
-            agent_reply = await self.messages.create(
+            delivery_event = await self.messages.create(
                 conversation_id=conversation.id,
-                sender_type=MessageSenderType.AGENT,
-                sender_agent_id=assigned_agent.id,
-                kind=MessageKind.TEXT,
+                sender_type=MessageSenderType.SYSTEM,
+                kind=MessageKind.EVENT,
                 content=(
-                    f"{agent_display_name}: Thanks for the details. "
-                    "I am checking this for you now."
+                    f"Message sent to {assigned_agent.display_name}. "
+                    "They will reply shortly."
                 ),
-                metadata_json={"show_talk_to_agent": False},
+                metadata_json={
+                    "assigned_agent_id": str(assigned_agent.id),
+                    "show_talk_to_agent": False,
+                },
             )
 
             await self.conversations.touch(conversation)
             await self.session.commit()
             await self.session.refresh(conversation)
 
+            await self._emit_message_created(customer_message)
+            await self._emit_message_created(delivery_event)
+            await self._emit_conversation_updated(conversation)
+
             return BotExchange(
                 conversation=conversation,
                 customer_message=customer_message,
-                bot_message=agent_reply,
+                bot_message=delivery_event,
                 quick_questions=[],
                 show_talk_to_agent=False,
             )
@@ -265,6 +280,10 @@ class ConversationService:
         await self.conversations.touch(conversation)
         await self.session.commit()
         await self.session.refresh(conversation)
+
+        await self._emit_message_created(customer_message)
+        await self._emit_message_created(bot_message)
+        await self._emit_conversation_updated(conversation)
 
         return BotExchange(
             conversation=conversation,
@@ -322,6 +341,11 @@ class ConversationService:
 
         await self.session.commit()
         await self.session.refresh(conversation)
+
+        await self._emit_message_created(customer_message)
+        await self._emit_message_created(system_message)
+        await self._emit_conversation_updated(conversation)
+        await self._emit_agent_assigned(conversation, assigned_agent)
 
         return BotExchange(
             conversation=conversation,
@@ -381,3 +405,101 @@ class ConversationService:
                 return agent
 
         return online_agents[0]
+
+    async def _emit_message_created(self, message: Message) -> None:
+        await self._safe_publish(
+            channels=[conversation_channel(message.conversation_id)],
+            event=RealtimeEvent.MESSAGE_CREATED,
+            payload={
+                "conversation_id": str(message.conversation_id),
+                "message": self._message_payload(message),
+            },
+        )
+
+    async def _emit_conversation_updated(self, conversation: Conversation) -> None:
+        await self._safe_publish(
+            channels=self._conversation_channels(conversation),
+            event=RealtimeEvent.CONVERSATION_UPDATED,
+            payload={"conversation": self._conversation_payload(conversation)},
+        )
+
+    async def _emit_agent_assigned(
+        self, conversation: Conversation, assigned_agent: Agent
+    ) -> None:
+        await self._safe_publish(
+            channels=self._conversation_channels(conversation),
+            event=RealtimeEvent.AGENT_ASSIGNED,
+            payload={
+                "conversation": self._conversation_payload(conversation),
+                "agent": self._agent_payload(assigned_agent),
+            },
+        )
+
+    async def _safe_publish(
+        self,
+        channels: list[str],
+        event: RealtimeEvent,
+        payload: dict[str, Any],
+    ) -> None:
+        try:
+            await self.realtime.publish(channels, event, payload)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _conversation_channels(conversation: Conversation) -> list[str]:
+        channels = [conversation_channel(conversation.id)]
+        if conversation.assigned_agent_id is not None:
+            channels.append(agent_queue_channel(conversation.assigned_agent_id))
+        return channels
+
+    @staticmethod
+    def _conversation_payload(conversation: Conversation) -> dict[str, Any]:
+        return {
+            "id": str(conversation.id),
+            "customer_session_id": conversation.customer_session_id,
+            "status": conversation.status.value,
+            "assigned_agent_id": (
+                str(conversation.assigned_agent_id)
+                if conversation.assigned_agent_id is not None
+                else None
+            ),
+            "requested_agent_at": (
+                conversation.requested_agent_at.isoformat()
+                if conversation.requested_agent_at is not None
+                else None
+            ),
+            "closed_at": (
+                conversation.closed_at.isoformat()
+                if conversation.closed_at is not None
+                else None
+            ),
+            "created_at": conversation.created_at.isoformat(),
+            "updated_at": conversation.updated_at.isoformat(),
+        }
+
+    @staticmethod
+    def _message_payload(message: Message) -> dict[str, Any]:
+        return {
+            "id": str(message.id),
+            "conversation_id": str(message.conversation_id),
+            "sender_type": message.sender_type.value,
+            "sender_agent_id": (
+                str(message.sender_agent_id) if message.sender_agent_id is not None else None
+            ),
+            "kind": message.kind.value,
+            "content": message.content,
+            "metadata_json": message.metadata_json,
+            "created_at": message.created_at.isoformat(),
+        }
+
+    @staticmethod
+    def _agent_payload(agent: Agent) -> dict[str, Any]:
+        return {
+            "id": str(agent.id),
+            "display_name": agent.display_name,
+            "presence": agent.presence.value,
+            "max_active_chats": agent.max_active_chats,
+            "created_at": agent.created_at.isoformat(),
+            "updated_at": agent.updated_at.isoformat(),
+        }
