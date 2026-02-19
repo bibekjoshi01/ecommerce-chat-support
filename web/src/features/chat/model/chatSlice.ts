@@ -27,10 +27,34 @@ const sortByCreatedAt = (messages: Message[]) =>
     (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
   );
 
+const isAgentConnectedNotice = (message: Message) =>
+  message.sender_type === "system" &&
+  message.kind === "event" &&
+  message.content
+    .trim()
+    .toLowerCase()
+    .endsWith("is connected. you can continue typing your message.");
+
 const mergeMessages = (existing: Message[], incoming: Message[]) => {
   const byId = new Map(existing.map((message) => [message.id, message]));
+  const existingConnectedNoticeContent = new Set(
+    existing
+      .filter((message) => isAgentConnectedNotice(message))
+      .map((message) => message.content.trim()),
+  );
+
   for (const message of incoming) {
+    if (
+      !byId.has(message.id) &&
+      isAgentConnectedNotice(message) &&
+      existingConnectedNoticeContent.has(message.content.trim())
+    ) {
+      continue;
+    }
     byId.set(message.id, message);
+    if (isAgentConnectedNotice(message)) {
+      existingConnectedNoticeContent.add(message.content.trim());
+    }
   }
   return sortByCreatedAt([...byId.values()]);
 };

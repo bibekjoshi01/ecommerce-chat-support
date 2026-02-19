@@ -23,6 +23,7 @@ import {
 } from "../api/agentApi";
 import {
   clearAgentIdentity,
+  removeConversation,
   resetAgentWorkspace,
   selectConversation,
   setAgentIdentity,
@@ -33,10 +34,12 @@ import {
   upsertConversation,
   upsertConversationMessage,
 } from "./agentSlice";
+import type { AgentConversationFilter } from "./agentSlice";
 
 const WS_RETRY_BASE_DELAY_MS = 500;
 const WS_RETRY_MAX_DELAY_MS = 5000;
 const AGENT_TYPING_IDLE_MS = 1200;
+const CONVERSATION_REFRESH_INTERVAL_MS = 15000;
 
 const toErrorMessage = (error: unknown): string => {
   if (!error || typeof error !== "object") {
@@ -97,6 +100,19 @@ const isMessage = (value: unknown): value is Message => {
   );
 };
 
+const shouldShowConversationForFilter = (
+  conversation: Conversation,
+  statusFilter: AgentConversationFilter,
+) => {
+  if (conversation.status === "automated") {
+    return false;
+  }
+  if (statusFilter === "all") {
+    return true;
+  }
+  return conversation.status === statusFilter;
+};
+
 export const useAgentWorkspaceController = () => {
   const navigate = useNavigate();
   const dispatch = useAppDispatch();
@@ -125,6 +141,9 @@ export const useAgentWorkspaceController = () => {
     isTyping: false,
   });
   const typingStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const refreshRequestSeqRef = useRef(0);
+  const statusFilterRef = useRef<AgentConversationFilter>("agent");
+  const conversationIdsRef = useRef<Set<string>>(new Set());
 
   const {
     agentId,
@@ -138,6 +157,8 @@ export const useAgentWorkspaceController = () => {
 
   selectedConversationIdRef.current = selectedConversationId;
   profileRef.current = profile;
+  statusFilterRef.current = statusFilter;
+  conversationIdsRef.current = new Set(conversations.map((conversation) => conversation.id));
 
   const clearTypingTimer = useCallback(() => {
     if (typingStopTimerRef.current) {
@@ -221,7 +242,7 @@ export const useAgentWorkspaceController = () => {
     }
 
     try {
-      const profileResponse = await fetchAgentProfile(undefined, true).unwrap();
+      const profileResponse = await fetchAgentProfile().unwrap();
       dispatch(
         setAgentIdentity({
           agentId: profileResponse.id,
@@ -246,15 +267,22 @@ export const useAgentWorkspaceController = () => {
       return;
     }
 
+    const requestSeq = ++refreshRequestSeqRef.current;
     try {
       const response = await fetchConversations(
         {
           status: statusFilter === "all" ? undefined : statusFilter,
         },
-        true,
       ).unwrap();
+      if (requestSeq !== refreshRequestSeqRef.current) {
+        return;
+      }
       dispatch(setConversations(response.items));
+      setUiError(null);
     } catch (error) {
+      if (requestSeq !== refreshRequestSeqRef.current) {
+        return;
+      }
       const message = toErrorMessage(error);
       setUiError(message);
       if (message.toLowerCase().includes("session")) {
@@ -268,7 +296,17 @@ export const useAgentWorkspaceController = () => {
       return;
     }
     void refreshConversations();
-  }, [agentId, refreshConversations, statusFilter]);
+  }, [agentId, refreshConversations]);
+
+  useEffect(() => {
+    if (!agentId) {
+      return;
+    }
+    const intervalId = setInterval(() => {
+      void refreshConversations();
+    }, CONVERSATION_REFRESH_INTERVAL_MS);
+    return () => clearInterval(intervalId);
+  }, [agentId, refreshConversations]);
 
   useEffect(() => {
     if (!agentId || !selectedConversationId) {
@@ -282,12 +320,21 @@ export const useAgentWorkspaceController = () => {
           {
             conversationId: selectedConversationId,
           },
-          true,
         ).unwrap();
         if (!active) {
           return;
         }
-        dispatch(upsertConversation(response.conversation));
+        if (
+          shouldShowConversationForFilter(
+            response.conversation,
+            statusFilterRef.current,
+          )
+        ) {
+          dispatch(upsertConversation(response.conversation));
+        } else {
+          dispatch(removeConversation(response.conversation.id));
+          return;
+        }
         dispatch(
           setConversationMessages({
             conversationId: selectedConversationId,
@@ -439,7 +486,13 @@ export const useAgentWorkspaceController = () => {
           if (!isConversation(conversation)) {
             return;
           }
-          dispatch(upsertConversation(conversation));
+          if (
+            shouldShowConversationForFilter(conversation, statusFilterRef.current)
+          ) {
+            dispatch(upsertConversation(conversation));
+          } else {
+            dispatch(removeConversation(conversation.id));
+          }
           return;
         }
 
@@ -449,7 +502,13 @@ export const useAgentWorkspaceController = () => {
           }
           const conversation = envelope.payload.conversation;
           if (isConversation(conversation)) {
-            dispatch(upsertConversation(conversation));
+            if (
+              shouldShowConversationForFilter(conversation, statusFilterRef.current)
+            ) {
+              dispatch(upsertConversation(conversation));
+            } else {
+              dispatch(removeConversation(conversation.id));
+            }
           }
           return;
         }
@@ -460,6 +519,12 @@ export const useAgentWorkspaceController = () => {
           }
           const message = envelope.payload.message;
           if (!isMessage(message)) {
+            return;
+          }
+          const knownConversation =
+            conversationIdsRef.current.has(message.conversation_id) ||
+            selectedConversationIdRef.current === message.conversation_id;
+          if (!knownConversation) {
             return;
           }
           dispatch(upsertConversationMessage(message));
@@ -559,7 +624,7 @@ export const useAgentWorkspaceController = () => {
     }
   }, [selectedConversationId, isRealtimeConnected]);
 
-  const setFilter = (value: "all" | "automated" | "agent" | "closed") => {
+  const setFilter = (value: AgentConversationFilter) => {
     dispatch(setStatusFilter(value));
   };
 
@@ -607,8 +672,17 @@ export const useAgentWorkspaceController = () => {
       const response = await closeConversation({
         conversationId: selectedConversationId,
       }).unwrap();
-      dispatch(upsertConversation(response.conversation));
-      if (response.system_message) {
+      const shouldKeepVisible = shouldShowConversationForFilter(
+        response.conversation,
+        statusFilterRef.current,
+      );
+
+      if (shouldKeepVisible) {
+        dispatch(upsertConversation(response.conversation));
+      } else {
+        dispatch(removeConversation(response.conversation.id));
+      }
+      if (response.system_message && shouldKeepVisible) {
         dispatch(upsertConversationMessage(response.system_message));
       }
     } catch (error) {

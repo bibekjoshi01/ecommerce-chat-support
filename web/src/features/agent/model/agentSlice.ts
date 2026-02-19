@@ -2,7 +2,8 @@ import { PayloadAction, createSlice } from "@reduxjs/toolkit";
 
 import type { AgentProfile, Conversation, ConversationStatus, Message } from "../../../shared/types/chat";
 
-export type AgentConversationFilter = ConversationStatus | "all";
+type AgentWorkspaceStatus = Exclude<ConversationStatus, "automated">;
+export type AgentConversationFilter = AgentWorkspaceStatus | "all";
 
 interface AgentState {
   agentId: string | null;
@@ -95,6 +96,18 @@ const agentSlice = createSlice({
         state.selectedConversationId = action.payload.id;
       }
     },
+    removeConversation(state, action: PayloadAction<string>) {
+      const conversationId = action.payload;
+      state.conversations = state.conversations.filter(
+        (conversation) => conversation.id !== conversationId,
+      );
+      delete state.messagesByConversation[conversationId];
+      delete state.unreadByConversation[conversationId];
+
+      if (state.selectedConversationId === conversationId) {
+        state.selectedConversationId = state.conversations[0]?.id ?? null;
+      }
+    },
     selectConversation(state, action: PayloadAction<string | null>) {
       state.selectedConversationId = action.payload;
       if (action.payload) {
@@ -140,6 +153,7 @@ export const {
   setConversations,
   setStatusFilter,
   upsertConversation,
+  removeConversation,
   upsertConversationMessage,
 } = agentSlice.actions;
 

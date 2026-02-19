@@ -8,6 +8,12 @@ const statusLabel: Record<Conversation["status"], string> = {
   closed: "Closed",
 };
 
+const filterLabel: Record<AgentConversationFilter, string> = {
+  all: "All",
+  agent: "Active",
+  closed: "Closed",
+};
+
 const formatTime = (iso: string) => {
   const parsed = new Date(iso);
   if (Number.isNaN(parsed.valueOf())) {
@@ -26,7 +32,7 @@ interface AgentConversationListProps {
   onFilterChange: (nextFilter: AgentConversationFilter) => void;
 }
 
-const filterOptions: AgentConversationFilter[] = ["agent", "automated", "closed", "all"];
+const filterOptions: AgentConversationFilter[] = ["agent", "closed", "all"];
 
 export const AgentConversationList = ({
   conversations,
@@ -51,7 +57,7 @@ export const AgentConversationList = ({
           type="button"
           onClick={() => onFilterChange(filter)}
         >
-          {filter}
+          {filterLabel[filter]}
         </button>
       ))}
     </div>
