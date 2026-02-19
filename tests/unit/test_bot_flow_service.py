@@ -203,7 +203,9 @@ class FakeAgentRepository:
         return None
 
     async def list_online(self) -> list[FakeAgent]:
-        return list(self.agents)
+        return [
+            agent for agent in self.agents if agent.presence == AgentPresence.ONLINE
+        ]
 
     async def create(
         self,
@@ -375,7 +377,7 @@ async def test_escalate_to_agent_switches_mode_and_assigns_agent(
 
 
 @pytest.mark.asyncio
-async def test_send_text_in_agent_mode_returns_delivery_event(
+async def test_send_text_in_agent_mode_queues_message_without_system_reply(
     service: ConversationService,
 ) -> None:
     bootstrap = await service.start_customer_conversation(
@@ -395,6 +397,69 @@ async def test_send_text_in_agent_mode_returns_delivery_event(
 
     assert exchange.conversation.status == ConversationStatus.AGENT
     assert exchange.customer_message.sender_type == MessageSenderType.CUSTOMER
-    assert exchange.bot_message.sender_type == MessageSenderType.SYSTEM
-    assert exchange.bot_message.kind == MessageKind.EVENT
+    assert exchange.bot_message is None
     assert exchange.show_talk_to_agent is False
+
+
+@pytest.mark.asyncio
+async def test_send_text_in_agent_mode_keeps_assignment_when_agent_offline(
+    service: ConversationService,
+) -> None:
+    bootstrap = await service.start_customer_conversation(
+        customer_session_id="session-agent-offline-1",
+        force_new=False,
+    )
+    escalated = await service.escalate_to_agent(
+        bootstrap.conversation.id,
+        customer_session_id="session-agent-offline-1",
+    )
+    assigned_agent_id = escalated.conversation.assigned_agent_id
+    assert assigned_agent_id is not None
+
+    assert isinstance(service.agents, FakeAgentRepository)
+    for agent in service.agents.agents:
+        if agent.id == assigned_agent_id:
+            agent.presence = AgentPresence.OFFLINE
+
+    exchange = await service.send_customer_text_message(
+        bootstrap.conversation.id,
+        "I can wait for the assigned agent.",
+        customer_session_id="session-agent-offline-1",
+    )
+
+    assert exchange.customer_message.sender_type == MessageSenderType.CUSTOMER
+    assert exchange.bot_message is None
+    assert exchange.conversation.assigned_agent_id == assigned_agent_id
+
+
+@pytest.mark.asyncio
+async def test_send_text_in_agent_mode_succeeds_when_no_agent_available(
+    service: ConversationService,
+) -> None:
+    bootstrap = await service.start_customer_conversation(
+        customer_session_id="session-agent-unassigned-1",
+        force_new=False,
+    )
+    await service.escalate_to_agent(
+        bootstrap.conversation.id,
+        customer_session_id="session-agent-unassigned-1",
+    )
+
+    assert isinstance(service.conversations, FakeConversationRepository)
+    conversation = service.conversations.conversations[bootstrap.conversation.id]
+    conversation.assigned_agent_id = None
+
+    assert isinstance(service.agents, FakeAgentRepository)
+    for agent in service.agents.agents:
+        agent.presence = AgentPresence.OFFLINE
+
+    exchange = await service.send_customer_text_message(
+        bootstrap.conversation.id,
+        "I will wait for the next available agent.",
+        customer_session_id="session-agent-unassigned-1",
+    )
+
+    assert exchange.conversation.status == ConversationStatus.AGENT
+    assert exchange.customer_message.sender_type == MessageSenderType.CUSTOMER
+    assert exchange.bot_message is None
+    assert exchange.conversation.assigned_agent_id is None

@@ -218,11 +218,21 @@ class ConversationService:
         )
 
         if conversation.status == ConversationStatus.AGENT:
-            assigned_agent = await self._resolve_assigned_agent(conversation)
-            assignment_changed = conversation.assigned_agent_id != assigned_agent.id
-            if assignment_changed:
-                conversation.assigned_agent_id = assigned_agent.id
-                conversation.requested_agent_at = datetime.now(UTC)
+            assigned_agent: Agent | None = None
+            assignment_changed = False
+
+            # Do not reassign an already-assigned active chat when the current
+            # agent is temporarily offline. Keep customer UX stable: accept the
+            # message and let the customer wait for a reply.
+            if conversation.assigned_agent_id is None:
+                try:
+                    assigned_agent = await self._pick_available_agent()
+                except NoAvailableAgentError:
+                    assigned_agent = None
+                else:
+                    conversation.assigned_agent_id = assigned_agent.id
+                    conversation.requested_agent_at = datetime.now(UTC)
+                    assignment_changed = True
 
             await self.conversations.touch(conversation)
             await self.session.commit()
@@ -230,7 +240,7 @@ class ConversationService:
 
             await self._emit_message_created(customer_message)
             await self._emit_conversation_updated(conversation)
-            if assignment_changed:
+            if assignment_changed and assigned_agent is not None:
                 await self._emit_agent_assigned(conversation, assigned_agent)
 
             return BotExchange(
