@@ -119,6 +119,10 @@ def _raise_for_service_error(exc: Exception) -> None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=str(exc)
         ) from exc
+    if isinstance(exc, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
     raise exc
 
 
@@ -159,6 +163,7 @@ async def get_conversation(
         FaqNotFoundError,
         ConversationClosedError,
         ConversationModeError,
+        ValueError,
     ) as exc:
         _raise_for_service_error(exc)
     return _to_conversation_response(conversation)
@@ -238,6 +243,7 @@ async def post_customer_message(
         ConversationClosedError,
         ConversationModeError,
         NoAvailableAgentError,
+        ValueError,
     ) as exc:
         _raise_for_service_error(exc)
     return _to_exchange_response(result)
@@ -264,6 +270,7 @@ async def escalate_to_agent(
         ConversationClosedError,
         ConversationModeError,
         NoAvailableAgentError,
+        ValueError,
     ) as exc:
         _raise_for_service_error(exc)
     return _to_exchange_response(result)

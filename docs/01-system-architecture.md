@@ -96,6 +96,9 @@ Rules:
 
 - new conversation starts in `AUTOMATED`.
 - `Talk to agent` moves state to `AGENT` (idempotent on repeated clicks).
+- `AGENT` can be:
+  - waiting queue (`assigned_agent_id = null`)
+  - actively handled (`assigned_agent_id != null`)
 - only agent can transition `AGENT -> CLOSED`.
 - `CLOSED` is read-only and terminal.
 
@@ -128,7 +131,8 @@ Current strategy:
 
 - assign the least-loaded online agent.
 - hard rule: max one assigned agent per conversation.
-- escalation when no online agent returns conflict (`409`) and stays in `AUTOMATED`.
+- if no agent has available capacity, escalation still enters `AGENT` queue mode and
+  remains unassigned until an agent picks it up.
 - once chat is already in `AGENT` mode, customer messages are still accepted even if agent is temporarily offline.
 
 ## 8. Edge Case Handling
@@ -136,7 +140,7 @@ Current strategy:
 - multiple `Talk to agent` clicks:
   - idempotent operation, no duplicate assignment, no duplicate system messages.
 - no agent available:
-  - escalation returns conflict and customer remains in bot flow.
+  - escalation enters `AGENT` queue mode with no assignment yet.
 - agent disconnects mid-chat:
   - customer can continue sending messages; chat remains in `AGENT` mode and waits for agent reply.
 - customer refreshes page:

@@ -72,6 +72,11 @@ class FakeConversationRepository:
     async def get_by_id(self, conversation_id: UUID) -> FakeConversation | None:
         return self.conversations.get(conversation_id)
 
+    async def get_by_id_for_update(
+        self, conversation_id: UUID
+    ) -> FakeConversation | None:
+        return self.conversations.get(conversation_id)
+
     async def get_latest_active_by_session(
         self, customer_session_id: str
     ) -> FakeConversation | None:
@@ -323,6 +328,23 @@ async def test_free_text_matches_faq_question(service: ConversationService) -> N
 
 
 @pytest.mark.asyncio
+async def test_free_text_rejects_whitespace_only_content(
+    service: ConversationService,
+) -> None:
+    bootstrap = await service.start_customer_conversation(
+        customer_session_id="session-text-empty-1",
+        force_new=False,
+    )
+
+    with pytest.raises(ValueError, match="cannot be empty"):
+        await service.send_customer_text_message(
+            bootstrap.conversation.id,
+            "   ",
+            customer_session_id="session-text-empty-1",
+        )
+
+
+@pytest.mark.asyncio
 async def test_get_conversation_fails_for_mismatched_session(
     service: ConversationService,
 ) -> None:
@@ -530,3 +552,68 @@ async def test_escalation_prefers_less_loaded_online_agent(
 
     assert exchange.conversation.status == ConversationStatus.AGENT
     assert exchange.conversation.assigned_agent_id == secondary_agent.id
+
+
+@pytest.mark.asyncio
+async def test_escalation_moves_to_waiting_queue_when_no_agent_available(
+    service: ConversationService,
+) -> None:
+    bootstrap = await service.start_customer_conversation(
+        customer_session_id="session-queue-no-agent-1",
+        force_new=False,
+    )
+
+    assert isinstance(service.agents, FakeAgentRepository)
+    for agent in service.agents.agents:
+        agent.presence = AgentPresence.OFFLINE
+
+    exchange = await service.escalate_to_agent(
+        bootstrap.conversation.id,
+        customer_session_id="session-queue-no-agent-1",
+    )
+
+    assert exchange.conversation.status == ConversationStatus.AGENT
+    assert exchange.conversation.assigned_agent_id is None
+    assert exchange.show_talk_to_agent is False
+    assert exchange.bot_message is not None
+    assert exchange.bot_message.sender_type == MessageSenderType.SYSTEM
+    assert "queue" in exchange.bot_message.content.lower()
+
+
+@pytest.mark.asyncio
+async def test_queued_escalation_remains_idempotent_for_system_message(
+    service: ConversationService,
+) -> None:
+    bootstrap = await service.start_customer_conversation(
+        customer_session_id="session-queue-repeat-1",
+        force_new=False,
+    )
+
+    assert isinstance(service.agents, FakeAgentRepository)
+    for agent in service.agents.agents:
+        agent.presence = AgentPresence.OFFLINE
+
+    first = await service.escalate_to_agent(
+        bootstrap.conversation.id,
+        customer_session_id="session-queue-repeat-1",
+    )
+    second = await service.escalate_to_agent(
+        bootstrap.conversation.id,
+        customer_session_id="session-queue-repeat-1",
+    )
+
+    assert first.conversation.status == ConversationStatus.AGENT
+    assert first.conversation.assigned_agent_id is None
+    assert second.conversation.status == ConversationStatus.AGENT
+    assert second.conversation.assigned_agent_id is None
+    assert second.bot_message is None
+
+    assert isinstance(service.messages, FakeMessageRepository)
+    queue_system_messages = [
+        message
+        for message in service.messages.messages
+        if message.conversation_id == bootstrap.conversation.id
+        and message.sender_type == MessageSenderType.SYSTEM
+        and "queue" in message.content.lower()
+    ]
+    assert len(queue_system_messages) == 1

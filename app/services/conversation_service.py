@@ -6,7 +6,6 @@ from uuid import UUID, uuid4
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.enums import (
-    AgentPresence,
     ConversationStatus,
     MessageKind,
     MessageSenderType,
@@ -210,6 +209,9 @@ class ConversationService:
         self._assert_not_closed(conversation)
 
         cleaned_content = content.strip()
+        if not cleaned_content:
+            raise ValueError("Message content cannot be empty.")
+
         customer_message = await self.messages.create(
             conversation_id=conversation.id,
             sender_type=MessageSenderType.CUSTOMER,
@@ -307,6 +309,7 @@ class ConversationService:
         conversation = await self._get_conversation_or_raise(
             conversation_id,
             customer_session_id,
+            for_update=True,
         )
         self._assert_not_closed(conversation)
 
@@ -318,24 +321,36 @@ class ConversationService:
             metadata_json={"action": "talk_to_agent"},
         )
 
-        assigned_agent = await self._resolve_assigned_agent(conversation)
-        status_changed = conversation.status != ConversationStatus.AGENT
-        assignment_changed = conversation.assigned_agent_id != assigned_agent.id
-        agent_display_name = self._display_agent_name(assigned_agent)
+        status_changed = False
+        assignment_changed = False
 
-        if status_changed:
+        if conversation.status == ConversationStatus.AUTOMATED:
             conversation.status = ConversationLifecycle.transition(
                 conversation.status, TransitionAction.ESCALATE_TO_AGENT
             )
+            status_changed = True
 
-        if assignment_changed:
-            conversation.assigned_agent_id = assigned_agent.id
+        if conversation.requested_agent_at is None:
             conversation.requested_agent_at = datetime.now(UTC)
-        if status_changed or assignment_changed:
-            await self.conversations.touch(conversation)
+
+        assigned_agent: Agent | None = None
+        if conversation.assigned_agent_id is not None:
+            assigned_agent = await self.agents.get_by_id(conversation.assigned_agent_id)
+            if assigned_agent is None:
+                conversation.assigned_agent_id = None
+
+        if assigned_agent is None and conversation.assigned_agent_id is None:
+            try:
+                assigned_agent = await self._pick_available_agent()
+            except NoAvailableAgentError:
+                assigned_agent = None
+            else:
+                conversation.assigned_agent_id = assigned_agent.id
+                assignment_changed = True
 
         system_message: Message | None = None
-        if status_changed or assignment_changed:
+        if assignment_changed and assigned_agent is not None:
+            agent_display_name = self._display_agent_name(assigned_agent)
             system_message = await self.messages.create(
                 conversation_id=conversation.id,
                 sender_type=MessageSenderType.SYSTEM,
@@ -350,6 +365,22 @@ class ConversationService:
                     "show_talk_to_agent": False,
                 },
             )
+        elif status_changed:
+            system_message = await self.messages.create(
+                conversation_id=conversation.id,
+                sender_type=MessageSenderType.SYSTEM,
+                kind=MessageKind.EVENT,
+                content=(
+                    "All agents are currently busy. "
+                    "You are in queue and will be connected soon."
+                ),
+                metadata_json={
+                    "queued_for_agent": True,
+                    "show_talk_to_agent": False,
+                },
+            )
+
+        await self.conversations.touch(conversation)
 
         await self.session.commit()
         await self.session.refresh(conversation)
@@ -358,7 +389,7 @@ class ConversationService:
         if system_message is not None:
             await self._emit_message_created(system_message)
         await self._emit_conversation_updated(conversation)
-        if assignment_changed:
+        if assignment_changed and assigned_agent is not None:
             await self._emit_agent_assigned(conversation, assigned_agent)
 
         return BotExchange(
@@ -373,8 +404,13 @@ class ConversationService:
         self,
         conversation_id: UUID,
         customer_session_id: str,
+        *,
+        for_update: bool = False,
     ) -> Conversation:
-        conversation = await self.conversations.get_by_id(conversation_id)
+        if for_update:
+            conversation = await self.conversations.get_by_id_for_update(conversation_id)
+        else:
+            conversation = await self.conversations.get_by_id(conversation_id)
         if conversation is None:
             raise ConversationNotFoundError(conversation_id)
         if conversation.customer_session_id != customer_session_id:
@@ -395,33 +431,23 @@ class ConversationService:
         if conversation.status != ConversationStatus.AUTOMATED:
             raise ConversationModeError(conversation.id, conversation.status)
 
-    async def _resolve_assigned_agent(self, conversation: Conversation) -> Agent:
-        if conversation.assigned_agent_id:
-            existing = await self.agents.get_by_id(conversation.assigned_agent_id)
-            if existing is not None and existing.presence == AgentPresence.ONLINE:
-                return existing
-
-        return await self._pick_available_agent()
-
     async def _pick_available_agent(self) -> Agent:
         online_agents = await self.agents.list_online()
         if not online_agents:
             raise NoAvailableAgentError()
 
         best_agent: Agent | None = None
-        best_score: tuple[int, float, int] | None = None
+        best_score: tuple[float, int] | None = None
 
         for agent in online_agents:
             active_count = await self.conversations.count_active_assigned_to_agent(
                 agent.id
             )
             max_chats = max(agent.max_active_chats, 1)
-            has_capacity = active_count < max_chats
-            score = (
-                0 if has_capacity else 1,
-                active_count / max_chats,
-                active_count,
-            )
+            if active_count >= max_chats:
+                continue
+
+            score = (active_count / max_chats, active_count)
             if best_score is None or score < best_score:
                 best_score = score
                 best_agent = agent

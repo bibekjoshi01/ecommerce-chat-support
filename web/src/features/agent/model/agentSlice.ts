@@ -1,9 +1,12 @@
 import { PayloadAction, createSlice } from "@reduxjs/toolkit";
 
-import type { AgentProfile, Conversation, ConversationStatus, Message } from "../../../shared/types/chat";
+import type {
+  AgentProfile,
+  Conversation,
+  Message,
+} from "../../../shared/types/chat";
 
-type AgentWorkspaceStatus = Exclude<ConversationStatus, "automated">;
-export type AgentConversationFilter = AgentWorkspaceStatus | "all";
+export type AgentConversationFilter = "active" | "waiting" | "closed" | "all";
 
 interface AgentState {
   agentId: string | null;
@@ -18,7 +21,7 @@ interface AgentState {
 const initialState: AgentState = {
   agentId: null,
   profile: null,
-  statusFilter: "agent",
+  statusFilter: "active",
   conversations: [],
   selectedConversationId: null,
   messagesByConversation: {},

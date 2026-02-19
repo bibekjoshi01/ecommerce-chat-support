@@ -1,30 +1,30 @@
-from enum import Enum
+from enum import StrEnum
 
 
-class ConversationStatus(str, Enum):
+class ConversationStatus(StrEnum):
     AUTOMATED = "automated"
     AGENT = "agent"
     CLOSED = "closed"
 
 
-class MessageSenderType(str, Enum):
+class MessageSenderType(StrEnum):
     CUSTOMER = "customer"
     BOT = "bot"
     AGENT = "agent"
     SYSTEM = "system"
 
 
-class MessageKind(str, Enum):
+class MessageKind(StrEnum):
     TEXT = "text"
     QUICK_REPLY = "quick_reply"
     EVENT = "event"
 
 
-class AgentPresence(str, Enum):
+class AgentPresence(StrEnum):
     ONLINE = "online"
     OFFLINE = "offline"
 
 
-class TransitionAction(str, Enum):
+class TransitionAction(StrEnum):
     ESCALATE_TO_AGENT = "escalate_to_agent"
     CLOSE_BY_AGENT = "close_by_agent"

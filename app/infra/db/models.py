@@ -4,14 +4,14 @@ from uuid import UUID, uuid4
 from sqlalchemy import (
     JSON,
     Boolean,
-    MetaData,
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Integer,
+    MetaData,
     String,
     Text,
-    Index,
     UniqueConstraint,
     Uuid,
     func,
@@ -24,7 +24,6 @@ from app.domain.enums import (
     MessageKind,
     MessageSenderType,
 )
-
 
 convention = {
     "ix": "ix_%(column_0_label)s",

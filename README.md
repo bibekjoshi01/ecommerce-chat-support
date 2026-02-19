@@ -38,7 +38,7 @@ app/                    Backend source
 alembic/                DB migrations
 tests/                  Unit tests
 web/                    Frontend app
-docs/architecture/      System and API design notes
+docs/                   System and API design notes
 ```
 
 ## Prerequisites
@@ -160,6 +160,5 @@ python run_seed.py
 
 ## Architecture Docs
 
-- `docs/architecture/01-system-architecture.md`
-- `docs/architecture/02-api-and-events.md`
-- `docs/architecture/03-roadmap.md`
+- `docs/01-system-architecture.md`
+- `docs/02-api-and-events.md`

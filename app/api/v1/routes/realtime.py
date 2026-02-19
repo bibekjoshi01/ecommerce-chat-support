@@ -379,20 +379,20 @@ async def realtime_ws(websocket: WebSocket) -> None:
         return
     finally:
         await hub.disconnect(websocket)
-        if tracked_agent_id is None:
-            return
+        if tracked_agent_id is not None:
+            should_set_offline = True
+            agent_channel = agent_queue_channel(tracked_agent_id)
+            if hasattr(hub, "subscriber_count"):
+                remaining_connections = int(hub.subscriber_count(agent_channel))
+                should_set_offline = remaining_connections <= 0
 
-        agent_channel = agent_queue_channel(tracked_agent_id)
-        if hasattr(hub, "subscriber_count"):
-            remaining_connections = int(hub.subscriber_count(agent_channel))
-            if remaining_connections > 0:
-                return
-
-        async with session_factory() as session:
-            agents = AgentRepository(session)
-            agent = await agents.get_by_id(tracked_agent_id)
-            if agent is None:
-                return
-            if agent.presence != AgentPresence.OFFLINE:
-                await agents.update_presence(agent, AgentPresence.OFFLINE)
-                await session.commit()
+            if should_set_offline:
+                async with session_factory() as session:
+                    agents = AgentRepository(session)
+                    agent = await agents.get_by_id(tracked_agent_id)
+                    if (
+                        agent is not None
+                        and agent.presence != AgentPresence.OFFLINE
+                    ):
+                        await agents.update_presence(agent, AgentPresence.OFFLINE)
+                        await session.commit()

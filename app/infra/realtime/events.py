@@ -1,7 +1,7 @@
-from enum import Enum
+from enum import StrEnum
 
 
-class RealtimeEvent(str, Enum):
+class RealtimeEvent(StrEnum):
     MESSAGE_CREATED = "message.created"
     CONVERSATION_UPDATED = "conversation.updated"
     AGENT_ASSIGNED = "agent.assigned"

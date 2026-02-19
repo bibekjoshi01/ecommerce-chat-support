@@ -12,8 +12,8 @@ async def main() -> None:
             await seed_default_faq_entries(session)
             await seed_default_agent_accounts(session)
             await session.commit()
+        print("Successfully loaded data!")
     finally:
-        print("Successfully loaded data !")
         await close_engine(engine)
 
 

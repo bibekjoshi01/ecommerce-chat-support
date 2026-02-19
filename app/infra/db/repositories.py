@@ -20,6 +20,16 @@ class ConversationRepository:
     async def get_by_id(self, conversation_id: UUID) -> Conversation | None:
         return await self.session.get(Conversation, conversation_id)
 
+    async def get_by_id_for_update(self, conversation_id: UUID) -> Conversation | None:
+        stmt: Select[tuple[Conversation]] = (
+            select(Conversation)
+            .where(Conversation.id == conversation_id)
+            .with_for_update()
+            .limit(1)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def get_latest_active_by_session(
         self, customer_session_id: str
     ) -> Conversation | None:
@@ -184,14 +194,14 @@ class AgentRepository:
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
-    async def set_all_presence(self, presence: AgentPresence) -> int:
+    async def set_all_presence(self, presence: AgentPresence) -> None:
         stmt = update(Agent).values(
             presence=presence,
             updated_at=datetime.now(UTC),
         )
-        result = await self.session.execute(stmt)
+        await self.session.execute(stmt)
         await self.session.flush()
-        return int(result.rowcount or 0)
+        return None
 
     async def create(
         self,

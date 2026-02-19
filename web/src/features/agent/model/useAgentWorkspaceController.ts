@@ -110,7 +110,20 @@ const shouldShowConversationForFilter = (
   if (statusFilter === "all") {
     return true;
   }
-  return conversation.status === statusFilter;
+  if (statusFilter === "closed") {
+    return conversation.status === "closed";
+  }
+  if (statusFilter === "waiting") {
+    return (
+      conversation.status === "agent" && conversation.assigned_agent_id === null
+    );
+  }
+  if (statusFilter === "active") {
+    return (
+      conversation.status === "agent" && conversation.assigned_agent_id !== null
+    );
+  }
+  return false;
 };
 
 export const useAgentWorkspaceController = () => {
@@ -142,7 +155,7 @@ export const useAgentWorkspaceController = () => {
   });
   const typingStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const refreshRequestSeqRef = useRef(0);
-  const statusFilterRef = useRef<AgentConversationFilter>("agent");
+  const statusFilterRef = useRef<AgentConversationFilter>("active");
   const conversationIdsRef = useRef<Set<string>>(new Set());
 
   const {
@@ -271,7 +284,12 @@ export const useAgentWorkspaceController = () => {
     try {
       const response = await fetchConversations(
         {
-          status: statusFilter === "all" ? undefined : statusFilter,
+          status:
+            statusFilter === "closed"
+              ? "closed"
+              : statusFilter === "all"
+                ? undefined
+                : "agent",
         },
       ).unwrap();
       if (requestSeq !== refreshRequestSeqRef.current) {
@@ -525,6 +543,7 @@ export const useAgentWorkspaceController = () => {
             conversationIdsRef.current.has(message.conversation_id) ||
             selectedConversationIdRef.current === message.conversation_id;
           if (!knownConversation) {
+            void refreshConversations();
             return;
           }
           dispatch(upsertConversationMessage(message));
@@ -548,7 +567,7 @@ export const useAgentWorkspaceController = () => {
       }
       activeSocket?.close();
     };
-  }, [agentId, clearTypingTimer, dispatch, signOut]);
+  }, [agentId, clearTypingTimer, dispatch, refreshConversations, signOut]);
 
   useEffect(() => {
     const activeConversationId = selectedConversationId;

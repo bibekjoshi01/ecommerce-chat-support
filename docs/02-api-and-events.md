@@ -59,6 +59,8 @@ System/control events:
 
 - Escalation is idempotent after assignment:
   repeated "Talk to agent" does not duplicate assignment or connection system messages.
+- If no agent is currently available, escalation still moves the conversation into
+  `AGENT` mode and queues it unassigned.
 - In `AGENT` mode, customer messages are accepted even if the assigned agent is temporarily offline.
 - Realtime reconnect on customer side triggers server resync of conversation/messages.
 
@@ -68,4 +70,4 @@ System/control events:
 - `401 UNAUTHORIZED` for invalid/expired agent token.
 - `403 FORBIDDEN` for customer-session or agent access violations.
 - `404 NOT FOUND` for missing conversation/faq/agent.
-- `409 CONFLICT` for invalid state/mode transitions or unavailable-agent escalation.
+- `409 CONFLICT` for invalid state/mode transitions.

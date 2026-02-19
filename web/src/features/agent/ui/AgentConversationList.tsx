@@ -2,15 +2,10 @@ import type { AgentConversationFilter } from "../model/agentSlice";
 import type { Conversation } from "../../../shared/types/chat";
 import "./AgentConversationList.css";
 
-const statusLabel: Record<Conversation["status"], string> = {
-  automated: "Automated",
-  agent: "Agent",
-  closed: "Closed",
-};
-
 const filterLabel: Record<AgentConversationFilter, string> = {
   all: "All",
-  agent: "Active",
+  active: "Active",
+  waiting: "Waiting",
   closed: "Closed",
 };
 
@@ -32,7 +27,12 @@ interface AgentConversationListProps {
   onFilterChange: (nextFilter: AgentConversationFilter) => void;
 }
 
-const filterOptions: AgentConversationFilter[] = ["agent", "closed", "all"];
+const filterOptions: AgentConversationFilter[] = [
+  "active",
+  "waiting",
+  "closed",
+  "all",
+];
 
 export const AgentConversationList = ({
   conversations,
@@ -75,6 +75,18 @@ export const AgentConversationList = ({
 
       {conversations.map((conversation) => {
         const unread = unreadByConversation[conversation.id] ?? 0;
+        const statusLabel =
+          conversation.status === "closed"
+            ? "Closed"
+            : conversation.assigned_agent_id
+              ? "Active"
+              : "Waiting";
+        const statusClass =
+          conversation.status === "closed"
+            ? "closed"
+            : conversation.assigned_agent_id
+              ? "agent"
+              : "automated";
         return (
           <button
             key={conversation.id}
@@ -95,9 +107,9 @@ export const AgentConversationList = ({
 
             <div className="agent-conversation-row">
               <span
-                className={`agent-status-pill agent-status-pill--${conversation.status}`}
+                className={`agent-status-pill agent-status-pill--${statusClass}`}
               >
-                {statusLabel[conversation.status]}
+                {statusLabel}
               </span>
 
               {unread > 0 && <span className="agent-unread-pill">{unread}</span>}
