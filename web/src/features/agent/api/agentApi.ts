@@ -1,38 +1,31 @@
 import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
 
+import { loadValidAgentAccessToken } from "../../../shared/lib/agentSession";
 import type {
   AgentCloseConversationResponse,
   AgentConversationListResponse,
   AgentConversationMessagesResponse,
+  AgentLoginResponse,
   AgentMessageExchangeResponse,
   AgentProfile,
   ConversationStatus,
 } from "../../../shared/types/chat";
 
-interface RegisterAgentRequest {
-  display_name: string;
-  max_active_chats: number;
-  start_online: boolean;
+interface AgentLoginRequest {
+  username: string;
+  password: string;
 }
 
-interface AgentScopedRequest {
-  agentId: string;
-}
-
-interface AgentConversationsRequest extends AgentScopedRequest {
+interface AgentConversationsRequest {
   status?: ConversationStatus;
 }
 
-interface AgentConversationScopedRequest extends AgentScopedRequest {
+interface AgentConversationScopedRequest {
   conversationId: string;
 }
 
 interface AgentSendMessageRequest extends AgentConversationScopedRequest {
   content: string;
-}
-
-interface SetPresenceRequest extends AgentScopedRequest {
-  presence: "online" | "offline";
 }
 
 const resolveAgentBaseUrl = (): string => {
@@ -44,47 +37,35 @@ export const agentApi = createApi({
   reducerPath: "agentApi",
   baseQuery: fetchBaseQuery({
     baseUrl: resolveAgentBaseUrl(),
+    prepareHeaders: (headers) => {
+      const accessToken = loadValidAgentAccessToken();
+      if (accessToken) {
+        headers.set("Authorization", `Bearer ${accessToken}`);
+      }
+      return headers;
+    },
   }),
   tagTypes: ["AgentProfile", "AgentConversations", "AgentConversationMessages"],
   endpoints: (builder) => ({
-    registerAgent: builder.mutation<AgentProfile, RegisterAgentRequest>({
+    loginAgent: builder.mutation<AgentLoginResponse, AgentLoginRequest>({
       query: (payload) => ({
-        url: "/register",
+        url: "/auth/login",
         method: "POST",
         body: payload,
       }),
-      invalidatesTags: ["AgentProfile", "AgentConversations"],
-    }),
-    getAgentProfile: builder.query<AgentProfile, AgentScopedRequest>({
-      query: ({ agentId }) => ({
-        url: "/me",
-        headers: {
-          "X-Agent-Id": agentId,
-        },
-      }),
-      providesTags: ["AgentProfile"],
-    }),
-    setAgentPresence: builder.mutation<AgentProfile, SetPresenceRequest>({
-      query: ({ agentId, presence }) => ({
-        url: "/presence",
-        method: "POST",
-        body: { presence },
-        headers: {
-          "X-Agent-Id": agentId,
-        },
-      }),
       invalidatesTags: ["AgentProfile"],
+    }),
+    getAgentProfile: builder.query<AgentProfile, void>({
+      query: () => "/me",
+      providesTags: ["AgentProfile"],
     }),
     listConversations: builder.query<
       AgentConversationListResponse,
       AgentConversationsRequest
     >({
-      query: ({ agentId, status }) => ({
+      query: ({ status }) => ({
         url: "/conversations",
         params: status ? { status } : undefined,
-        headers: {
-          "X-Agent-Id": agentId,
-        },
       }),
       providesTags: ["AgentConversations"],
     }),
@@ -92,12 +73,7 @@ export const agentApi = createApi({
       AgentConversationMessagesResponse,
       AgentConversationScopedRequest
     >({
-      query: ({ agentId, conversationId }) => ({
-        url: `/conversations/${conversationId}/messages`,
-        headers: {
-          "X-Agent-Id": agentId,
-        },
-      }),
+      query: ({ conversationId }) => `/conversations/${conversationId}/messages`,
       providesTags: (_result, _error, request) => [
         { type: "AgentConversationMessages", id: request.conversationId },
       ],
@@ -106,13 +82,10 @@ export const agentApi = createApi({
       AgentMessageExchangeResponse,
       AgentSendMessageRequest
     >({
-      query: ({ agentId, conversationId, content }) => ({
+      query: ({ conversationId, content }) => ({
         url: `/conversations/${conversationId}/messages`,
         method: "POST",
         body: { content },
-        headers: {
-          "X-Agent-Id": agentId,
-        },
       }),
       invalidatesTags: (_result, _error, request) => [
         "AgentConversations",
@@ -123,12 +96,9 @@ export const agentApi = createApi({
       AgentCloseConversationResponse,
       AgentConversationScopedRequest
     >({
-      query: ({ agentId, conversationId }) => ({
+      query: ({ conversationId }) => ({
         url: `/conversations/${conversationId}/close`,
         method: "POST",
-        headers: {
-          "X-Agent-Id": agentId,
-        },
       }),
       invalidatesTags: (_result, _error, request) => [
         "AgentConversations",
@@ -140,10 +110,9 @@ export const agentApi = createApi({
 
 export const {
   useCloseConversationMutation,
+  useLoginAgentMutation,
   useLazyGetAgentProfileQuery,
   useLazyGetConversationMessagesQuery,
   useLazyListConversationsQuery,
-  useRegisterAgentMutation,
   useSendAgentMessageMutation,
-  useSetAgentPresenceMutation,
 } = agentApi;

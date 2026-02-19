@@ -69,3 +69,8 @@ class NoAvailableAgentError(ValueError):
         super().__init__(
             "No agents are currently available. Please try again shortly."
         )
+
+
+class AgentAuthenticationError(PermissionError):
+    def __init__(self, detail: str = "Invalid agent credentials") -> None:
+        super().__init__(detail)

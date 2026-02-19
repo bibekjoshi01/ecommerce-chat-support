@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     db_seed_faq_defaults: bool = True
 
     redis_url: str = "redis://localhost:6379/0"
+    agent_auth_secret: str = "local-dev-agent-auth-secret-change-me"
+    agent_auth_token_ttl_minutes: int = 480
 
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", case_sensitive=False

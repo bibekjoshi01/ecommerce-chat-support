@@ -58,6 +58,14 @@ export interface AgentProfile {
   updated_at: string;
 }
 
+export interface AgentLoginResponse {
+  access_token: string;
+  token_type: "bearer";
+  expires_at: string;
+  username: string;
+  agent: AgentProfile;
+}
+
 export interface AgentConversationListResponse {
   items: Conversation[];
 }

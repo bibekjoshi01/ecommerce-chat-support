@@ -14,7 +14,6 @@ export const AgentWorkspace = () => {
     isLoadingMessages,
     isRealtimeConnected,
     isRefreshingConversations,
-    isRegisteringAgent,
     isSendingMessage,
     profile,
     selectedConversation,
@@ -26,7 +25,7 @@ export const AgentWorkspace = () => {
     uiError,
     unreadByConversation,
     closeSelectedConversation,
-    reconnectAgent,
+    signOut,
     refreshConversations,
     selectConversationById,
     sendReply,
@@ -50,7 +49,7 @@ export const AgentWorkspace = () => {
           isRealtimeConnected={isRealtimeConnected}
           isRefreshingConversations={isRefreshingConversations}
           profile={profile}
-          onReconnect={reconnectAgent}
+          onSignOut={signOut}
           onRefresh={() => void refreshConversations()}
         />
 
@@ -59,7 +58,7 @@ export const AgentWorkspace = () => {
         <div className="agent-workspace-grid">
           <AgentConversationList
             conversations={conversations}
-            isLoading={isRefreshingConversations || isRegisteringAgent}
+            isLoading={isRefreshingConversations}
             onSelectConversation={selectConversationById}
             selectedConversationId={selectedConversationId}
             statusFilter={statusFilter}

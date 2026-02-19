@@ -21,7 +21,7 @@ class AgentResponse(BaseModel):
 class RegisterAgentRequest(BaseModel):
     display_name: str = Field(min_length=2, max_length=120)
     max_active_chats: int = Field(default=3, ge=1, le=20)
-    start_online: bool = True
+    start_online: bool = False
 
 
 class SetAgentPresenceRequest(BaseModel):

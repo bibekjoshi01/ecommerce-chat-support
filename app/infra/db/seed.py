@@ -1,7 +1,9 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.infra.db.models import FaqEntry
+from app.core.security import hash_password
+from app.domain.enums import AgentPresence
+from app.infra.db.models import Agent, AgentUser, FaqEntry
 
 DEFAULT_FAQ_ENTRIES: list[dict[str, str | int | bool]] = [
     {
@@ -24,6 +26,27 @@ DEFAULT_FAQ_ENTRIES: list[dict[str, str | int | bool]] = [
         "answer": "Share your order ID and I can help check the latest order tracking status.",
         "display_order": 3,
         "is_active": True,
+    },
+]
+
+DEFAULT_AGENT_ACCOUNTS: list[dict[str, str | int]] = [
+    {
+        "display_name": "Bibek Joshi",
+        "username": "bibek.joshi",
+        "password": "BibekJoshi@123!",
+        "max_active_chats": 5,
+    },
+    {
+        "display_name": "John Doe",
+        "username": "john.doe",
+        "password": "AgentPass123!",
+        "max_active_chats": 5,
+    },
+    {
+        "display_name": "Admin",
+        "username": "admin",
+        "password": "Admin@123",
+        "max_active_chats": 5,
     },
 ]
 
@@ -50,4 +73,38 @@ async def seed_default_faq_entries(session: AsyncSession) -> None:
 
     if inserts:
         session.add_all(inserts)
+        await session.flush()
+
+
+async def seed_default_agent_accounts(session: AsyncSession) -> None:
+    existing_user_rows = await session.execute(select(AgentUser.username))
+    existing_usernames = {
+        username.strip().lower() for username in existing_user_rows.scalars().all()
+    }
+
+    for item in DEFAULT_AGENT_ACCOUNTS:
+        username = str(item["username"]).strip().lower()
+        if username in existing_usernames:
+            continue
+
+        display_name = str(item["display_name"]).strip()
+        password = str(item["password"])
+        max_active_chats = int(item["max_active_chats"])
+
+        agent = Agent(
+            display_name=display_name,
+            max_active_chats=max_active_chats,
+            presence=AgentPresence.OFFLINE,
+        )
+        session.add(agent)
+        await session.flush()
+
+        session.add(
+            AgentUser(
+                agent_id=agent.id,
+                username=username,
+                password_hash=hash_password(password),
+                is_active=True,
+            )
+        )
         await session.flush()

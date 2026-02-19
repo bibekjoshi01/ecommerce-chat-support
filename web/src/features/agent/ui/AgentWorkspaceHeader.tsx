@@ -1,4 +1,4 @@
-import { FiRefreshCw, FiRotateCw } from "react-icons/fi";
+import { FiLogOut, FiRefreshCw } from "react-icons/fi";
 
 import type { AgentProfile } from "../../../shared/types/chat";
 import "./AgentWorkspaceHeader.css";
@@ -8,7 +8,7 @@ interface AgentWorkspaceHeaderProps {
   isRealtimeConnected: boolean;
   isRefreshingConversations: boolean;
   onRefresh: () => void;
-  onReconnect: () => void;
+  onSignOut: () => void;
 }
 
 export const AgentWorkspaceHeader = ({
@@ -16,7 +16,7 @@ export const AgentWorkspaceHeader = ({
   isRealtimeConnected,
   isRefreshingConversations,
   onRefresh,
-  onReconnect,
+  onSignOut,
 }: AgentWorkspaceHeaderProps) => (
   <section className="agent-workspace-header">
     <div>
@@ -52,9 +52,9 @@ export const AgentWorkspaceHeader = ({
           {isRefreshingConversations ? "Refreshing..." : "Refresh"}
         </button>
 
-        <button className="agent-control-button" type="button" onClick={onReconnect}>
-          <FiRotateCw aria-hidden="true" />
-          Re-register
+        <button className="agent-control-button" type="button" onClick={onSignOut}>
+          <FiLogOut aria-hidden="true" />
+          Sign out
         </button>
       </div>
     </div>

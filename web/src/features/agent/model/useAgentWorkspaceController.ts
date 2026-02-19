@@ -1,13 +1,12 @@
 import { FetchBaseQueryError } from "@reduxjs/toolkit/query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { useAppDispatch, useAppSelector } from "../../../app/hooks";
 import {
-  clearStoredAgentIdentity,
-  createDefaultAgentDisplayName,
-  loadStoredAgentIdentity,
-  saveStoredAgentIdentity,
-} from "../../../shared/lib/agentIdentity";
+  clearStoredAgentSession,
+  loadStoredAgentSession,
+} from "../../../shared/lib/agentSession";
 import { buildRealtimeWsUrl } from "../../../shared/lib/realtime";
 import type {
   AgentProfile,
@@ -20,7 +19,6 @@ import {
   useLazyGetAgentProfileQuery,
   useLazyGetConversationMessagesQuery,
   useLazyListConversationsQuery,
-  useRegisterAgentMutation,
   useSendAgentMessageMutation,
 } from "../api/agentApi";
 import {
@@ -99,11 +97,10 @@ const isMessage = (value: unknown): value is Message => {
 };
 
 export const useAgentWorkspaceController = () => {
+  const navigate = useNavigate();
   const dispatch = useAppDispatch();
   const agentState = useAppSelector((state) => state.agent);
 
-  const [registerAgent, { isLoading: isRegisteringAgent }] =
-    useRegisterAgentMutation();
   const [fetchAgentProfile] = useLazyGetAgentProfileQuery();
   const [fetchConversations, { isFetching: isRefreshingConversations }] =
     useLazyListConversationsQuery();
@@ -136,6 +133,20 @@ export const useAgentWorkspaceController = () => {
   selectedConversationIdRef.current = selectedConversationId;
   profileRef.current = profile;
 
+  const signOut = useCallback(() => {
+    clearStoredAgentSession();
+    setDraft("");
+    setUiError(null);
+    setIsRealtimeConnected(false);
+    if (socketRef.current) {
+      socketRef.current.close();
+      socketRef.current = null;
+    }
+    dispatch(clearAgentIdentity());
+    dispatch(resetAgentWorkspace());
+    navigate("/agent/login", { replace: true });
+  }, [dispatch, navigate]);
+
   const selectedConversation = useMemo(
     () =>
       selectedConversationId
@@ -152,71 +163,33 @@ export const useAgentWorkspaceController = () => {
     return messagesByConversation[selectedConversationId] ?? [];
   }, [messagesByConversation, selectedConversationId]);
 
-  const ensureIdentity = useCallback(async (): Promise<AgentProfile | null> => {
-    const storedIdentity = loadStoredAgentIdentity();
-    if (storedIdentity) {
-      try {
-        const profileResponse = await fetchAgentProfile(
-          { agentId: storedIdentity.agentId },
-          true,
-        ).unwrap();
-        const persistedIdentity = saveStoredAgentIdentity({
-          agentId: profileResponse.id,
-          displayName: profileResponse.display_name,
-        });
-        dispatch(
-          setAgentIdentity({
-            agentId: persistedIdentity.agentId,
-            profile: profileResponse,
-          }),
-        );
-        return profileResponse;
-      } catch (_error) {
-        clearStoredAgentIdentity();
-      }
+  const bootstrapIdentity = useCallback(async () => {
+    const storedSession = loadStoredAgentSession();
+    if (!storedSession) {
+      signOut();
+      return;
     }
 
-    const fallbackName = storedIdentity?.displayName ?? createDefaultAgentDisplayName();
-    const registered = await registerAgent({
-      display_name: fallbackName,
-      max_active_chats: 5,
-      start_online: false,
-    }).unwrap();
-    const persistedIdentity = saveStoredAgentIdentity({
-      agentId: registered.id,
-      displayName: registered.display_name,
-    });
-    dispatch(
-      setAgentIdentity({
-        agentId: persistedIdentity.agentId,
-        profile: registered,
-      }),
-    );
-    return registered;
-  }, [dispatch, fetchAgentProfile, registerAgent]);
+    try {
+      const profileResponse = await fetchAgentProfile(undefined, true).unwrap();
+      dispatch(
+        setAgentIdentity({
+          agentId: profileResponse.id,
+          profile: profileResponse,
+        }),
+      );
+      setUiError(null);
+    } catch (error) {
+      setUiError(toErrorMessage(error));
+      signOut();
+    }
+  }, [dispatch, fetchAgentProfile, signOut]);
 
   useEffect(() => {
-    let active = true;
-
-    const bootstrap = async () => {
-      try {
-        setUiError(null);
-        await ensureIdentity();
-      } catch (error) {
-        if (active) {
-          setUiError(toErrorMessage(error));
-        }
-      }
-    };
-
     if (!agentId) {
-      void bootstrap();
+      void bootstrapIdentity();
     }
-
-    return () => {
-      active = false;
-    };
-  }, [agentId, ensureIdentity]);
+  }, [agentId, bootstrapIdentity]);
 
   const refreshConversations = useCallback(async () => {
     if (!agentId) {
@@ -226,16 +199,19 @@ export const useAgentWorkspaceController = () => {
     try {
       const response = await fetchConversations(
         {
-          agentId,
           status: statusFilter === "all" ? undefined : statusFilter,
         },
         true,
       ).unwrap();
       dispatch(setConversations(response.items));
     } catch (error) {
-      setUiError(toErrorMessage(error));
+      const message = toErrorMessage(error);
+      setUiError(message);
+      if (message.toLowerCase().includes("session")) {
+        signOut();
+      }
     }
-  }, [agentId, dispatch, fetchConversations, statusFilter]);
+  }, [agentId, dispatch, fetchConversations, signOut, statusFilter]);
 
   useEffect(() => {
     if (!agentId) {
@@ -254,7 +230,6 @@ export const useAgentWorkspaceController = () => {
       try {
         const response = await fetchConversationMessages(
           {
-            agentId,
             conversationId: selectedConversationId,
           },
           true,
@@ -270,8 +245,13 @@ export const useAgentWorkspaceController = () => {
           }),
         );
       } catch (error) {
-        if (active) {
-          setUiError(toErrorMessage(error));
+        if (!active) {
+          return;
+        }
+        const message = toErrorMessage(error);
+        setUiError(message);
+        if (message.toLowerCase().includes("session")) {
+          signOut();
         }
       }
     };
@@ -280,7 +260,7 @@ export const useAgentWorkspaceController = () => {
     return () => {
       active = false;
     };
-  }, [agentId, dispatch, fetchConversationMessages, selectedConversationId]);
+  }, [agentId, dispatch, fetchConversationMessages, selectedConversationId, signOut]);
 
   useEffect(() => {
     if (!agentId) {
@@ -326,10 +306,16 @@ export const useAgentWorkspaceController = () => {
         return;
       }
 
+      const storedSession = loadStoredAgentSession();
+      if (!storedSession) {
+        signOut();
+        return;
+      }
+
       const websocket = new WebSocket(
         buildRealtimeWsUrl({
           role: "agent",
-          agent_id: agentId,
+          access_token: storedSession.accessToken,
         }),
       );
 
@@ -356,13 +342,19 @@ export const useAgentWorkspaceController = () => {
         }
       };
 
-      websocket.onclose = () => {
+      websocket.onclose = (event) => {
         if (closedByCleanup) {
           return;
         }
         setIsRealtimeConnected(false);
         setLocalPresence("offline");
         subscribedConversationIdRef.current = null;
+
+        if (event.code === 1008) {
+          setUiError("Session expired. Please login again.");
+          signOut();
+          return;
+        }
         scheduleReconnect();
       };
 
@@ -437,7 +429,7 @@ export const useAgentWorkspaceController = () => {
       }
       activeSocket?.close();
     };
-  }, [agentId, dispatch]);
+  }, [agentId, dispatch, signOut]);
 
   useEffect(() => {
     const websocket = socketRef.current;
@@ -446,10 +438,7 @@ export const useAgentWorkspaceController = () => {
     }
 
     const currentSubscription = subscribedConversationIdRef.current;
-    if (
-      currentSubscription &&
-      currentSubscription !== selectedConversationId
-    ) {
+    if (currentSubscription && currentSubscription !== selectedConversationId) {
       websocket.send(
         JSON.stringify({
           action: "unsubscribe_conversation",
@@ -494,7 +483,6 @@ export const useAgentWorkspaceController = () => {
 
     try {
       const response = await sendAgentMessage({
-        agentId,
         conversationId: selectedConversationId,
         content,
       }).unwrap();
@@ -502,7 +490,11 @@ export const useAgentWorkspaceController = () => {
       dispatch(upsertConversationMessage(response.message));
       setDraft("");
     } catch (error) {
-      setUiError(toErrorMessage(error));
+      const message = toErrorMessage(error);
+      setUiError(message);
+      if (message.toLowerCase().includes("session")) {
+        signOut();
+      }
     }
   };
 
@@ -514,7 +506,6 @@ export const useAgentWorkspaceController = () => {
     setUiError(null);
     try {
       const response = await closeConversation({
-        agentId,
         conversationId: selectedConversationId,
       }).unwrap();
       dispatch(upsertConversation(response.conversation));
@@ -522,16 +513,12 @@ export const useAgentWorkspaceController = () => {
         dispatch(upsertConversationMessage(response.system_message));
       }
     } catch (error) {
-      setUiError(toErrorMessage(error));
+      const message = toErrorMessage(error);
+      setUiError(message);
+      if (message.toLowerCase().includes("session")) {
+        signOut();
+      }
     }
-  };
-
-  const reconnectAgent = () => {
-    setUiError(null);
-    clearStoredAgentIdentity();
-    dispatch(clearAgentIdentity());
-    dispatch(resetAgentWorkspace());
-    setDraft("");
   };
 
   return {
@@ -542,7 +529,6 @@ export const useAgentWorkspaceController = () => {
     isLoadingMessages,
     isRealtimeConnected,
     isRefreshingConversations,
-    isRegisteringAgent,
     isSendingMessage,
     profile,
     selectedConversation,
@@ -554,9 +540,9 @@ export const useAgentWorkspaceController = () => {
     uiError,
     unreadByConversation,
     closeSelectedConversation,
-    reconnectAgent,
     refreshConversations,
     selectConversationById,
     sendReply,
+    signOut,
   };
 };

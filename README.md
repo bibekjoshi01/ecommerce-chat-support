@@ -25,7 +25,7 @@ This is a strong baseline for a technical lead assignment because it demonstrate
 - Start/resume customer conversation by session
 - Send free-text customer messages and quick-reply FAQ prompts
 - Simulated real support feel with short request/reply delay + typing state
-- Router-ready app with `/` (customer) and `/agent` (reserved for next phase)
+- Router-ready app with `/` (customer), `/agent/login`, and protected `/agent`
 
 ## Run locally
 
@@ -43,6 +43,7 @@ cp .env.example .env
 ```bash
 docker compose up -d postgres redis
 alembic upgrade head
+python run_seed.py
 uvicorn app.main:app --reload
 ```
 
@@ -51,7 +52,7 @@ If you also run a local Postgres service, prefer `POSTGRES_HOST=127.0.0.1` in `.
 ### 3) Start frontend
 
 ```bash
-cd frontend
+cd web
 npm install
 npm run dev
 ```
@@ -61,7 +62,7 @@ Frontend runs at `http://127.0.0.1:5173` and proxies `/api` to FastAPI (`http://
 ## Frontend architecture (minimal, but strong)
 
 ```text
-frontend/src
+web/src
   app/                # store + router shell
   features/chat/
     api/              # RTK Query endpoints for customer chat
@@ -89,9 +90,9 @@ Conversation-specific customer endpoints require:
 
 ## Agent endpoints (implemented)
 
+- `POST /api/v1/agent/auth/login`
 - `POST /api/v1/agent/register`
 - `GET /api/v1/agent/me`
-- `POST /api/v1/agent/presence`
 - `GET /api/v1/agent/conversations?status=automated|agent|closed`
 - `GET /api/v1/agent/conversations/{conversation_id}/messages`
 - `POST /api/v1/agent/conversations/{conversation_id}/messages`
@@ -99,7 +100,11 @@ Conversation-specific customer endpoints require:
 
 Agent-protected endpoints require:
 
-- Header: `X-Agent-Id: <agent_id>`
+- Header: `Authorization: Bearer <access_token>`
+
+## Seeded agent accounts (dev)
+
+`python run_seed.py` creates default FAQ entries and these agent logins:
 
 ## Realtime websocket endpoint
 
@@ -108,4 +113,4 @@ Agent-protected endpoints require:
 Query patterns:
 
 - Customer stream: `role=customer&conversation_id=<uuid>&customer_session_id=<session_id>`
-- Agent stream: `role=agent&agent_id=<uuid>[&conversation_id=<uuid>]`
+- Agent stream: `role=agent&access_token=<access_token>[&conversation_id=<uuid>]`

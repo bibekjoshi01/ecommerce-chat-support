@@ -5,9 +5,15 @@ from uuid import UUID
 from fastapi import APIRouter, WebSocket
 from starlette.websockets import WebSocketDisconnect
 
+from app.core.config import get_settings
 from app.core.db import get_session_factory
+from app.core.security import decode_agent_access_token
 from app.domain.enums import AgentPresence
-from app.infra.db.repositories import AgentRepository, ConversationRepository
+from app.infra.db.repositories import (
+    AgentRepository,
+    AgentUserRepository,
+    ConversationRepository,
+)
 from app.infra.realtime.channels import (
     AGENT_PRESENCE_CHANNEL,
     agent_queue_channel,
@@ -15,6 +21,7 @@ from app.infra.realtime.channels import (
 )
 
 router = APIRouter()
+settings = get_settings()
 
 
 def _parse_uuid(raw: str | None) -> UUID | None:
@@ -75,16 +82,43 @@ async def realtime_ws(websocket: WebSocket) -> None:
 
         initial_channels.append(conversation_channel(requested_conversation_id))
     elif role == "agent":
-        if requested_agent_id is None:
+        access_token = websocket.query_params.get("access_token", "").strip()
+        if not access_token:
             await websocket.close(
                 code=1008,
-                reason="Agent websocket requires agent_id query parameter",
+                reason="Agent websocket requires access_token query parameter",
             )
             return
 
+        try:
+            claims = decode_agent_access_token(
+                access_token,
+                settings.agent_auth_secret,
+            )
+        except ValueError:
+            await websocket.close(code=1008, reason="Invalid or expired agent session")
+            return
+
+        resolved_agent_id = claims.agent_id
+        if requested_agent_id is not None and requested_agent_id != resolved_agent_id:
+            await websocket.close(code=1008, reason="Agent identity mismatch")
+            return
+        requested_agent_id = resolved_agent_id
+
         async with session_factory() as session:
             agents = AgentRepository(session)
+            users = AgentUserRepository(session)
             conversations = ConversationRepository(session)
+
+            agent_user = await users.get_by_id(claims.user_id)
+            if (
+                agent_user is None
+                or not agent_user.is_active
+                or agent_user.agent_id != resolved_agent_id
+            ):
+                await websocket.close(code=1008, reason="Invalid or expired agent session")
+                return
+
             agent = await agents.get_by_id(requested_agent_id)
             if agent is None:
                 await websocket.close(code=1008, reason="Agent not found")

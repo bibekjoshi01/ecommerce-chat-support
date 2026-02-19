@@ -10,7 +10,7 @@ from app.domain.enums import (
     MessageKind,
     MessageSenderType,
 )
-from app.infra.db.models import Agent, Conversation, FaqEntry, Message
+from app.infra.db.models import Agent, AgentUser, Conversation, FaqEntry, Message
 
 
 class ConversationRepository:
@@ -213,3 +213,49 @@ class AgentRepository:
         agent.presence = presence
         agent.updated_at = datetime.now(UTC)
         await self.session.flush()
+
+
+class AgentUserRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def get_by_id(self, user_id: UUID) -> AgentUser | None:
+        return await self.session.get(AgentUser, user_id)
+
+    async def get_by_username(self, username: str) -> AgentUser | None:
+        normalized = username.strip().lower()
+        if not normalized:
+            return None
+        stmt: Select[tuple[AgentUser]] = (
+            select(AgentUser)
+            .where(func.lower(AgentUser.username) == normalized)
+            .limit(1)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def get_by_agent_id(self, agent_id: UUID) -> AgentUser | None:
+        stmt: Select[tuple[AgentUser]] = (
+            select(AgentUser).where(AgentUser.agent_id == agent_id).limit(1)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def create(
+        self,
+        *,
+        agent_id: UUID,
+        username: str,
+        password_hash: str,
+        is_active: bool = True,
+    ) -> AgentUser:
+        agent_user = AgentUser(
+            agent_id=agent_id,
+            username=username.strip().lower(),
+            password_hash=password_hash,
+            is_active=is_active,
+        )
+        self.session.add(agent_user)
+        await self.session.flush()
+        await self.session.refresh(agent_user)
+        return agent_user

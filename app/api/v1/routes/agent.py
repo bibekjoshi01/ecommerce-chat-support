@@ -1,10 +1,15 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.db import get_db_session
+from app.core.security import decode_agent_access_token
 from app.domain.enums import ConversationStatus
+from app.infra.db.repositories import AgentUserRepository
+from app.schemas.agent_auth import AgentLoginRequest, AgentSessionResponse
 from app.schemas.agent_chat import (
     AgentCloseConversationResponse,
     AgentConversationListResponse,
@@ -16,6 +21,7 @@ from app.schemas.agent_chat import (
     SetAgentPresenceRequest,
 )
 from app.schemas.message import MessageResponse, SendMessageRequest
+from app.services.agent_auth_service import AgentAuthService
 from app.services.agent_service import (
     AgentCloseResult,
     AgentConversationMessages,
@@ -23,6 +29,7 @@ from app.services.agent_service import (
     AgentService,
 )
 from app.services.errors import (
+    AgentAuthenticationError,
     AgentConversationAccessDeniedError,
     AgentConversationModeError,
     AgentNotFoundError,
@@ -31,6 +38,8 @@ from app.services.errors import (
 )
 
 router = APIRouter()
+settings = get_settings()
+bearer_scheme = HTTPBearer(auto_error=False)
 
 
 async def get_agent_service(
@@ -41,10 +50,46 @@ async def get_agent_service(
     return AgentService(session=session, realtime=realtime)
 
 
+async def get_agent_auth_service(
+    session: AsyncSession = Depends(get_db_session),
+) -> AgentAuthService:
+    return AgentAuthService(session=session)
+
+
 async def get_agent_id(
-    x_agent_id: UUID = Header(alias="X-Agent-Id"),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    session: AsyncSession = Depends(get_db_session),
 ) -> UUID:
-    return x_agent_id
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing or invalid authorization credentials",
+        )
+
+    try:
+        claims = decode_agent_access_token(
+            credentials.credentials,
+            settings.agent_auth_secret,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired agent session",
+        ) from exc
+
+    users = AgentUserRepository(session)
+    agent_user = await users.get_by_id(claims.user_id)
+    if (
+        agent_user is None
+        or not agent_user.is_active
+        or agent_user.agent_id != claims.agent_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired agent session",
+        )
+
+    return agent_user.agent_id
 
 
 def _to_agent_response(agent) -> AgentResponse:
@@ -104,9 +149,34 @@ async def register_agent(
     agent = await service.register_agent(
         display_name=payload.display_name,
         max_active_chats=payload.max_active_chats,
-        start_online=payload.start_online,
+        start_online=False,
     )
     return _to_agent_response(agent)
+
+
+@router.post("/auth/login", response_model=AgentSessionResponse)
+async def login_agent(
+    payload: AgentLoginRequest,
+    service: AgentAuthService = Depends(get_agent_auth_service),
+) -> AgentSessionResponse:
+    try:
+        result = await service.login(
+            username=payload.username,
+            password=payload.password,
+        )
+    except AgentAuthenticationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(exc),
+        ) from exc
+
+    return AgentSessionResponse(
+        access_token=result.access_token,
+        token_type=result.token_type,
+        expires_at=result.expires_at,
+        username=result.username,
+        agent=_to_agent_response(result.agent),
+    )
 
 
 @router.get("/me", response_model=AgentResponse)
