@@ -231,10 +231,26 @@ async def post_customer_message(
     return _to_exchange_response(result)
 
 
-@router.post("/conversations/{conversation_id}/escalate")
-async def escalate_to_agent(conversation_id: UUID) -> dict[str, str]:
-    _ = conversation_id
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="Agent escalation is intentionally deferred in this phase",
-    )
+@router.post(
+    "/conversations/{conversation_id}/escalate",
+    response_model=BotExchangeResponse,
+)
+async def escalate_to_agent(
+    conversation_id: UUID,
+    service: ConversationService = Depends(get_conversation_service),
+    customer_session_id: str = Depends(get_customer_session_id),
+) -> BotExchangeResponse:
+    try:
+        result = await service.escalate_to_agent(
+            conversation_id=conversation_id,
+            customer_session_id=customer_session_id,
+        )
+    except (
+        ConversationAccessDeniedError,
+        ConversationNotFoundError,
+        FaqNotFoundError,
+        ConversationClosedError,
+        ConversationModeError,
+    ) as exc:
+        _raise_for_service_error(exc)
+    return _to_exchange_response(result)

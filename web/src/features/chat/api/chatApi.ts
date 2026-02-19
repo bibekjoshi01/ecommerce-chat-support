@@ -67,10 +67,21 @@ export const chatApi = createApi({
       }),
       invalidatesTags: ["Conversation", "Messages", "QuickQuestions"],
     }),
+    escalateToAgent: builder.mutation<BotExchangeResponse, ConversationScopedRequest>({
+      query: ({ conversationId, sessionId }) => ({
+        url: `/conversations/${conversationId}/escalate`,
+        method: "POST",
+        headers: {
+          "X-Customer-Session-Id": sessionId,
+        },
+      }),
+      invalidatesTags: ["Conversation", "Messages", "QuickQuestions"],
+    }),
   }),
 });
 
 export const {
+  useEscalateToAgentMutation,
   useSendQuickReplyMutation,
   useSendTextMessageMutation,
   useStartConversationMutation,

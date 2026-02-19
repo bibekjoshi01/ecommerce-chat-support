@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 import pytest
@@ -23,8 +23,9 @@ class FakeConversation:
     customer_session_id: str
     status: ConversationStatus
     assigned_agent_id: UUID | None = None
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    requested_agent_at: datetime | None = None
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass(slots=True)
@@ -35,7 +36,8 @@ class FakeMessage:
     kind: MessageKind
     content: str
     metadata_json: dict | None
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    sender_agent_id: UUID | None = None
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass(slots=True)
@@ -45,6 +47,13 @@ class FakeFaq:
     answer: str
     display_order: int
     is_active: bool = True
+
+
+@dataclass(slots=True)
+class FakeAgent:
+    id: UUID
+    display_name: str
+    max_active_chats: int
 
 
 class FakeConversationRepository:
@@ -77,7 +86,17 @@ class FakeConversationRepository:
         return conv
 
     async def touch(self, conversation: FakeConversation) -> None:
-        conversation.updated_at = datetime.now(timezone.utc)
+        conversation.updated_at = datetime.now(UTC)
+
+    async def count_active_assigned_to_agent(self, agent_id: UUID) -> int:
+        return len(
+            [
+                conversation
+                for conversation in self.conversations.values()
+                if conversation.assigned_agent_id == agent_id
+                and conversation.status == ConversationStatus.AGENT
+            ]
+        )
 
 
 class FakeMessageRepository:
@@ -93,7 +112,6 @@ class FakeMessageRepository:
         metadata_json: dict | None = None,
         sender_agent_id: UUID | None = None,
     ) -> FakeMessage:
-        _ = sender_agent_id
         message = FakeMessage(
             id=uuid4(),
             conversation_id=conversation_id,
@@ -101,6 +119,7 @@ class FakeMessageRepository:
             kind=kind,
             content=content,
             metadata_json=metadata_json,
+            sender_agent_id=sender_agent_id,
         )
         self.messages.append(message)
         return message
@@ -158,6 +177,39 @@ class FakeFaqRepository:
         return None
 
 
+class FakeAgentRepository:
+    def __init__(self) -> None:
+        self.agents: list[FakeAgent] = [
+            FakeAgent(
+                id=uuid4(),
+                display_name="Maya (Agent)",
+                max_active_chats=3,
+            )
+        ]
+
+    async def get_by_id(self, agent_id: UUID) -> FakeAgent | None:
+        for agent in self.agents:
+            if agent.id == agent_id:
+                return agent
+        return None
+
+    async def list_online(self) -> list[FakeAgent]:
+        return list(self.agents)
+
+    async def create(
+        self,
+        display_name: str = "Support Agent",
+        max_active_chats: int = 5,
+    ) -> FakeAgent:
+        agent = FakeAgent(
+            id=uuid4(),
+            display_name=display_name,
+            max_active_chats=max_active_chats,
+        )
+        self.agents.append(agent)
+        return agent
+
+
 @pytest.fixture
 def service() -> ConversationService:
     session = DummySession()
@@ -166,6 +218,7 @@ def service() -> ConversationService:
         conversations=FakeConversationRepository(),
         messages=FakeMessageRepository(),
         faqs=FakeFaqRepository(),
+        agents=FakeAgentRepository(),
     )
 
 
@@ -289,3 +342,49 @@ async def test_send_message_fails_for_mismatched_session(
             "What is the return policy?",
             customer_session_id="session-msg-owner-2",
         )
+
+
+@pytest.mark.asyncio
+async def test_escalate_to_agent_switches_mode_and_assigns_agent(
+    service: ConversationService,
+) -> None:
+    bootstrap = await service.start_customer_conversation(
+        customer_session_id="session-escalate-1",
+        force_new=False,
+    )
+
+    exchange = await service.escalate_to_agent(
+        bootstrap.conversation.id,
+        customer_session_id="session-escalate-1",
+    )
+
+    assert exchange.conversation.status == ConversationStatus.AGENT
+    assert exchange.conversation.assigned_agent_id is not None
+    assert exchange.customer_message.sender_type == MessageSenderType.CUSTOMER
+    assert exchange.bot_message.sender_type == MessageSenderType.SYSTEM
+    assert exchange.show_talk_to_agent is False
+
+
+@pytest.mark.asyncio
+async def test_send_text_in_agent_mode_returns_agent_reply(
+    service: ConversationService,
+) -> None:
+    bootstrap = await service.start_customer_conversation(
+        customer_session_id="session-agent-reply-1",
+        force_new=False,
+    )
+    await service.escalate_to_agent(
+        bootstrap.conversation.id,
+        customer_session_id="session-agent-reply-1",
+    )
+
+    exchange = await service.send_customer_text_message(
+        bootstrap.conversation.id,
+        "Can you check this order manually?",
+        customer_session_id="session-agent-reply-1",
+    )
+
+    assert exchange.conversation.status == ConversationStatus.AGENT
+    assert exchange.customer_message.sender_type == MessageSenderType.CUSTOMER
+    assert exchange.bot_message.sender_type == MessageSenderType.AGENT
+    assert exchange.show_talk_to_agent is False

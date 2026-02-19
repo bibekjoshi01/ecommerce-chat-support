@@ -28,8 +28,12 @@ export const CustomerChatWidget = () => {
   const {
     conversation,
     draft,
+    escalateToAgent,
+    isAgentMode,
     isAssistantTyping,
+    isAutomatedMode,
     isConversationClosed,
+    isEscalatingToAgent,
     isSending,
     isStartingConversation,
     messages,
@@ -41,17 +45,22 @@ export const CustomerChatWidget = () => {
     uiError,
   } = useCustomerChatController();
 
-  const canSend = !!conversation && !isConversationClosed && !isSending;
+  const canSendAgentMessage =
+    !!conversation && isAgentMode && !isConversationClosed && !isSending;
+  const canUseQuickQuestions =
+    !!conversation && isAutomatedMode && !isConversationClosed && !isSending;
+  const canEscalate =
+    !!conversation &&
+    isAutomatedMode &&
+    !isConversationClosed &&
+    !isEscalatingToAgent;
 
   const inputPlaceholder = useMemo(() => {
-    if (!conversation) {
-      return "Starting chat...";
-    }
     if (isConversationClosed) {
       return "Chat ended. Start a new conversation.";
     }
-    return "Type your message...";
-  }, [conversation, isConversationClosed]);
+    return "Write your message to the assigned agent...";
+  }, [isConversationClosed]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -107,7 +116,7 @@ export const CustomerChatWidget = () => {
 
             {!isStartingConversation && messages.length === 0 && (
               <div className="chat-empty">
-                Ask anything about order status, delivery, or returns.
+                Choose one quick question to get an instant automated reply.
               </div>
             )}
 
@@ -124,6 +133,18 @@ export const CustomerChatWidget = () => {
                     <time>{formatTime(message.created_at)}</time>
                   </div>
                   <p>{message.content}</p>
+                  {isAutomatedMode && message.sender_type === "bot" && (
+                    <div className="bubble-action-row">
+                      <button
+                        className="bubble-escalate-button"
+                        type="button"
+                        onClick={() => void escalateToAgent()}
+                        disabled={!canEscalate}
+                      >
+                        Talk to agent
+                      </button>
+                    </div>
+                  )}
                 </article>
               );
             })}
@@ -142,42 +163,66 @@ export const CustomerChatWidget = () => {
               </article>
             )}
 
+            {isAutomatedMode && quickQuestions.length > 0 && (
+              <div className="chat-inline-quick-questions">
+                {quickQuestions.map((quickQuestion) => (
+                  <button
+                    key={quickQuestion.slug}
+                    className="quick-question-button"
+                    type="button"
+                    disabled={!canUseQuickQuestions}
+                    onClick={() => void sendQuickQuestion(quickQuestion.slug)}
+                  >
+                    {quickQuestion.question}
+                  </button>
+                ))}
+                <button
+                  className="quick-question-button quick-question-button--agent"
+                  type="button"
+                  disabled={!canEscalate}
+                  onClick={() => void escalateToAgent()}
+                >
+                  Talk to an agent
+                </button>
+              </div>
+            )}
+
             <div ref={messagesEndRef} />
           </div>
 
-          <div className="chat-quick-questions">
-            {quickQuestions.map((quickQuestion) => (
+          {isAgentMode ? (
+            <form className="chat-composer" onSubmit={handleSend}>
+              <input
+                className="chat-input"
+                value={draft}
+                maxLength={4000}
+                disabled={!canSendAgentMessage}
+                onChange={(event) => setDraft(event.target.value)}
+                placeholder={inputPlaceholder}
+                aria-label="Customer message"
+              />
               <button
-                key={quickQuestion.slug}
-                className="quick-question-button"
-                type="button"
-                disabled={!canSend}
-                onClick={() => void sendQuickQuestion(quickQuestion.slug)}
+                className="chat-send"
+                type="submit"
+                disabled={!canSendAgentMessage || !draft.trim()}
               >
-                {quickQuestion.question}
+                <FiSend aria-hidden="true" />
+                {isSending ? "Sending..." : "Send"}
               </button>
-            ))}
-          </div>
-
-          <form className="chat-composer" onSubmit={handleSend}>
-            <input
-              className="chat-input"
-              value={draft}
-              maxLength={4000}
-              disabled={!canSend}
-              onChange={(event) => setDraft(event.target.value)}
-              placeholder={inputPlaceholder}
-              aria-label="Customer message"
-            />
-            <button
-              className="chat-send"
-              type="submit"
-              disabled={!canSend || !draft.trim()}
-            >
-              <FiSend aria-hidden="true" />
-              {isSending ? "Sending..." : "Send"}
-            </button>
-          </form>
+            </form>
+          ) : (
+            <div className="chat-mode-footer">
+              <p>Need personalized help from a human?</p>
+              <button
+                className="chat-escalate-button"
+                type="button"
+                onClick={() => void escalateToAgent()}
+                disabled={!canEscalate}
+              >
+                {isEscalatingToAgent ? "Connecting..." : "Talk to agent"}
+              </button>
+            </div>
+          )}
         </section>
       )}
 

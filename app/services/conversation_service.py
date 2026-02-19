@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,10 +11,16 @@ from app.services.errors import (
     ConversationNotFoundError,
     FaqNotFoundError,
 )
-from app.domain.enums import ConversationStatus, MessageKind, MessageSenderType
+from app.domain.enums import (
+    ConversationStatus,
+    MessageKind,
+    MessageSenderType,
+    TransitionAction,
+)
 from app.domain.state_machine import ConversationLifecycle
-from app.infra.db.models import Conversation, FaqEntry, Message
+from app.infra.db.models import Agent, Conversation, FaqEntry, Message
 from app.infra.db.repositories import (
+    AgentRepository,
     ConversationRepository,
     FaqRepository,
     MessageRepository,
@@ -50,11 +57,13 @@ class ConversationService:
         conversations: ConversationRepository | None = None,
         messages: MessageRepository | None = None,
         faqs: FaqRepository | None = None,
+        agents: AgentRepository | None = None,
     ) -> None:
         self.session = session
         self.conversations = conversations or ConversationRepository(session)
         self.messages = messages or MessageRepository(session)
         self.faqs = faqs or FaqRepository(session)
+        self.agents = agents or AgentRepository(session)
 
     async def start_customer_conversation(
         self,
@@ -75,7 +84,10 @@ class ConversationService:
                 conversation_id=conversation.id,
                 sender_type=MessageSenderType.BOT,
                 kind=MessageKind.EVENT,
-                content="Hi! I am your support assistant. Select a quick question or type your message.",
+                content=(
+                    "Hi! I am your support assistant. "
+                    "Select a quick question or choose talk to agent."
+                ),
                 metadata_json={"show_talk_to_agent": True},
             )
             await self.conversations.touch(conversation)
@@ -183,7 +195,7 @@ class ConversationService:
             conversation_id,
             customer_session_id,
         )
-        self._assert_bot_mode(conversation)
+        self._assert_not_closed(conversation)
 
         cleaned_content = content.strip()
         customer_message = await self.messages.create(
@@ -192,6 +204,33 @@ class ConversationService:
             kind=MessageKind.TEXT,
             content=cleaned_content,
         )
+
+        if conversation.status == ConversationStatus.AGENT:
+            assigned_agent = await self._resolve_assigned_agent(conversation)
+            agent_display_name = assigned_agent.display_name
+            agent_reply = await self.messages.create(
+                conversation_id=conversation.id,
+                sender_type=MessageSenderType.AGENT,
+                sender_agent_id=assigned_agent.id,
+                kind=MessageKind.TEXT,
+                content=(
+                    f"{agent_display_name}: Thanks for the details. "
+                    "I am checking this for you now."
+                ),
+                metadata_json={"show_talk_to_agent": False},
+            )
+
+            await self.conversations.touch(conversation)
+            await self.session.commit()
+            await self.session.refresh(conversation)
+
+            return BotExchange(
+                conversation=conversation,
+                customer_message=customer_message,
+                bot_message=agent_reply,
+                quick_questions=[],
+                show_talk_to_agent=False,
+            )
 
         faq_match = await self.faqs.find_by_question_or_slug(cleaned_content)
         quick_questions = await self.faqs.list_active()
@@ -237,6 +276,61 @@ class ConversationService:
             ),
         )
 
+    async def escalate_to_agent(
+        self,
+        conversation_id: UUID,
+        customer_session_id: str,
+    ) -> BotExchange:
+        conversation = await self._get_conversation_or_raise(
+            conversation_id,
+            customer_session_id,
+        )
+        self._assert_not_closed(conversation)
+
+        customer_message = await self.messages.create(
+            conversation_id=conversation.id,
+            sender_type=MessageSenderType.CUSTOMER,
+            kind=MessageKind.QUICK_REPLY,
+            content="Talk to an agent",
+            metadata_json={"action": "talk_to_agent"},
+        )
+
+        assigned_agent = await self._resolve_assigned_agent(conversation)
+
+        if conversation.status != ConversationStatus.AGENT:
+            conversation.status = ConversationLifecycle.transition(
+                conversation.status, TransitionAction.ESCALATE_TO_AGENT
+            )
+            conversation.assigned_agent_id = assigned_agent.id
+            conversation.requested_agent_at = datetime.now(UTC)
+            await self.conversations.touch(conversation)
+
+        system_message = await self.messages.create(
+            conversation_id=conversation.id,
+            sender_type=MessageSenderType.SYSTEM,
+            kind=MessageKind.EVENT,
+            content=(
+                f"{assigned_agent.display_name} is connected. "
+                "You can continue typing your message."
+            ),
+            metadata_json={
+                "assigned_agent_id": str(assigned_agent.id),
+                "assigned_agent_name": assigned_agent.display_name,
+                "show_talk_to_agent": False,
+            },
+        )
+
+        await self.session.commit()
+        await self.session.refresh(conversation)
+
+        return BotExchange(
+            conversation=conversation,
+            customer_message=customer_message,
+            bot_message=system_message,
+            quick_questions=[],
+            show_talk_to_agent=False,
+        )
+
     async def _get_conversation_or_raise(
         self,
         conversation_id: UUID,
@@ -254,8 +348,36 @@ class ConversationService:
             return customer_session_id.strip()
         return uuid4().hex
 
-    def _assert_bot_mode(self, conversation: Conversation) -> None:
+    def _assert_not_closed(self, conversation: Conversation) -> None:
         if ConversationLifecycle.is_read_only(conversation.status):
             raise ConversationClosedError(conversation.id)
+
+    def _assert_bot_mode(self, conversation: Conversation) -> None:
+        self._assert_not_closed(conversation)
         if conversation.status != ConversationStatus.AUTOMATED:
             raise ConversationModeError(conversation.id, conversation.status)
+
+    async def _resolve_assigned_agent(self, conversation: Conversation) -> Agent:
+        if conversation.assigned_agent_id:
+            existing = await self.agents.get_by_id(conversation.assigned_agent_id)
+            if existing is not None:
+                return existing
+
+        return await self._pick_available_agent()
+
+    async def _pick_available_agent(self) -> Agent:
+        online_agents = await self.agents.list_online()
+        if not online_agents:
+            return await self.agents.create(
+                display_name="Support Agent",
+                max_active_chats=5,
+            )
+
+        for agent in online_agents:
+            active_count = await self.conversations.count_active_assigned_to_agent(
+                agent.id
+            )
+            if active_count < agent.max_active_chats:
+                return agent
+
+        return online_agents[0]

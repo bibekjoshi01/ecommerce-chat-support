@@ -5,6 +5,7 @@ import { useAppDispatch, useAppSelector } from "../../../app/hooks";
 import { loadOrCreateSessionId } from "../../../shared/lib/session";
 import type { BotExchangeResponse, Message, MessageKind } from "../../../shared/types/chat";
 import {
+  useEscalateToAgentMutation,
   useSendQuickReplyMutation,
   useSendTextMessageMutation,
   useStartConversationMutation,
@@ -89,6 +90,8 @@ export const useCustomerChatController = () => {
     useSendTextMessageMutation();
   const [sendQuickReply, { isLoading: isSendingQuickReply }] =
     useSendQuickReplyMutation();
+  const [escalateToAgentMutation, { isLoading: isEscalatingToAgent }] =
+    useEscalateToAgentMutation();
 
   const [draft, setDraft] = useState("");
   const [uiError, setUiError] = useState<string | null>(null);
@@ -97,8 +100,10 @@ export const useCustomerChatController = () => {
     [],
   );
 
-  const isSending = isSendingText || isSendingQuickReply;
+  const isSending = isSendingText || isSendingQuickReply || isEscalatingToAgent;
   const isConversationClosed = conversation?.status === "closed";
+  const isAutomatedMode = conversation?.status === "automated";
+  const isAgentMode = conversation?.status === "agent";
 
   useEffect(() => {
     if (!sessionId) {
@@ -174,7 +179,7 @@ export const useCustomerChatController = () => {
   };
 
   const sendDraft = async () => {
-    if (!conversation || !sessionId) {
+    if (!conversation || !sessionId || !isAgentMode) {
       return;
     }
 
@@ -197,7 +202,7 @@ export const useCustomerChatController = () => {
   };
 
   const sendQuickQuestion = async (faqSlug: string) => {
-    if (!conversation || !sessionId) {
+    if (!conversation || !sessionId || !isAutomatedMode) {
       return;
     }
 
@@ -213,6 +218,22 @@ export const useCustomerChatController = () => {
           conversationId: conversation.id,
           sessionId,
           faqSlug,
+        }).unwrap(),
+    });
+  };
+
+  const escalateToAgent = async () => {
+    if (!conversation || !sessionId || !isAutomatedMode) {
+      return;
+    }
+
+    await runSendFlow({
+      content: "Talk to an agent",
+      kind: "quick_reply",
+      send: () =>
+        escalateToAgentMutation({
+          conversationId: conversation.id,
+          sessionId,
         }).unwrap(),
     });
   };
@@ -246,8 +267,12 @@ export const useCustomerChatController = () => {
   return {
     conversation,
     draft,
+    escalateToAgent,
+    isAgentMode,
     isAssistantTyping,
+    isAutomatedMode,
     isConversationClosed,
+    isEscalatingToAgent,
     isSending,
     isStartingConversation,
     messages,

@@ -1,11 +1,16 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domain.enums import ConversationStatus, MessageKind, MessageSenderType
-from app.infra.db.models import Conversation, FaqEntry, Message
+from app.domain.enums import (
+    AgentPresence,
+    ConversationStatus,
+    MessageKind,
+    MessageSenderType,
+)
+from app.infra.db.models import Agent, Conversation, FaqEntry, Message
 
 
 class ConversationRepository:
@@ -39,8 +44,16 @@ class ConversationRepository:
         return conversation
 
     async def touch(self, conversation: Conversation) -> None:
-        conversation.updated_at = datetime.now(timezone.utc)
+        conversation.updated_at = datetime.now(UTC)
         await self.session.flush()
+
+    async def count_active_assigned_to_agent(self, agent_id: UUID) -> int:
+        stmt: Select[tuple[int]] = select(func.count(Conversation.id)).where(
+            Conversation.assigned_agent_id == agent_id,
+            Conversation.status == ConversationStatus.AGENT,
+        )
+        result = await self.session.execute(stmt)
+        return int(result.scalar_one() or 0)
 
 
 class MessageRepository:
@@ -120,3 +133,36 @@ class FaqRepository:
         )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
+
+
+class AgentRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def get_by_id(self, agent_id: UUID) -> Agent | None:
+        return await self.session.get(Agent, agent_id)
+
+    async def list_online(self) -> list[Agent]:
+        stmt: Select[tuple[Agent]] = (
+            select(Agent)
+            .where(Agent.presence == AgentPresence.ONLINE)
+            .order_by(Agent.created_at.asc(), Agent.id.asc())
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def create(
+        self,
+        display_name: str = "Support Agent",
+        max_active_chats: int = 5,
+        presence: AgentPresence = AgentPresence.ONLINE,
+    ) -> Agent:
+        agent = Agent(
+            display_name=display_name,
+            max_active_chats=max_active_chats,
+            presence=presence,
+        )
+        self.session.add(agent)
+        await self.session.flush()
+        await self.session.refresh(agent)
+        return agent
