@@ -47,6 +47,6 @@ class ConversationMessagesResponse(BaseModel):
 class BotExchangeResponse(BaseModel):
     conversation: ConversationResponse
     customer_message: MessageResponse
-    bot_message: MessageResponse
+    bot_message: MessageResponse | None
     quick_questions: list[QuickQuestionResponse]
     show_talk_to_agent: bool

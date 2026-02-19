@@ -27,6 +27,8 @@ import {
 
 const REQUEST_DELAY_MS = 220;
 const ASSISTANT_REPLY_DELAY_MS = 620;
+const WS_RETRY_BASE_DELAY_MS = 500;
+const WS_RETRY_MAX_DELAY_MS = 5000;
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -193,76 +195,115 @@ export const useCustomerChatController = () => {
     }
 
     let closedByCleanup = false;
-    const websocket = new WebSocket(
-      buildRealtimeWsUrl({
-        role: "customer",
-        conversation_id: conversation.id,
-        customer_session_id: sessionId,
-      }),
-    );
+    let reconnectAttempt = 0;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let activeSocket: WebSocket | null = null;
 
-    socketRef.current = websocket;
+    const scheduleReconnect = () => {
+      if (closedByCleanup || reconnectTimer) {
+        return;
+      }
 
-    websocket.onopen = () => {
+      const delay = Math.min(
+        WS_RETRY_MAX_DELAY_MS,
+        WS_RETRY_BASE_DELAY_MS * 2 ** reconnectAttempt,
+      );
+      reconnectAttempt += 1;
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        connect();
+      }, delay);
+    };
+
+    const connect = () => {
       if (closedByCleanup) {
         return;
       }
-      setIsRealtimeConnected(true);
-    };
 
-    websocket.onclose = () => {
-      if (!closedByCleanup) {
+      const websocket = new WebSocket(
+        buildRealtimeWsUrl({
+          role: "customer",
+          conversation_id: conversation.id,
+          customer_session_id: sessionId,
+        }),
+      );
+
+      activeSocket = websocket;
+      socketRef.current = websocket;
+
+      websocket.onopen = () => {
+        if (closedByCleanup) {
+          return;
+        }
+        reconnectAttempt = 0;
+        setIsRealtimeConnected(true);
+      };
+
+      websocket.onclose = () => {
+        if (closedByCleanup) {
+          return;
+        }
         setIsRealtimeConnected(false);
-      }
+        scheduleReconnect();
+      };
+
+      websocket.onerror = () => {
+        if (closedByCleanup) {
+          return;
+        }
+        setIsRealtimeConnected(false);
+      };
+
+      websocket.onmessage = (event) => {
+        let envelope: RealtimeEnvelope<unknown> | null = null;
+        try {
+          envelope = JSON.parse(event.data) as RealtimeEnvelope<unknown>;
+        } catch (_error) {
+          return;
+        }
+
+        if (!envelope || typeof envelope.event !== "string") {
+          return;
+        }
+
+        if (envelope.event === "conversation.updated") {
+          if (!isObject(envelope.payload)) {
+            return;
+          }
+          const nextConversation = envelope.payload.conversation;
+          if (!isConversation(nextConversation)) {
+            return;
+          }
+          dispatch(upsertConversation(nextConversation));
+          return;
+        }
+
+        if (envelope.event === "message.created") {
+          if (!isObject(envelope.payload)) {
+            return;
+          }
+          const message = envelope.payload.message;
+          if (!isMessage(message)) {
+            return;
+          }
+          dispatch(upsertMessage(message));
+        }
+      };
     };
 
-    websocket.onerror = () => {
-      setIsRealtimeConnected(false);
-    };
-
-    websocket.onmessage = (event) => {
-      let envelope: RealtimeEnvelope<unknown> | null = null;
-      try {
-        envelope = JSON.parse(event.data) as RealtimeEnvelope<unknown>;
-      } catch (_error) {
-        return;
-      }
-
-      if (!envelope || typeof envelope.event !== "string") {
-        return;
-      }
-
-      if (envelope.event === "conversation.updated") {
-        if (!isObject(envelope.payload)) {
-          return;
-        }
-        const nextConversation = envelope.payload.conversation;
-        if (!isConversation(nextConversation)) {
-          return;
-        }
-        dispatch(upsertConversation(nextConversation));
-        return;
-      }
-
-      if (envelope.event === "message.created") {
-        if (!isObject(envelope.payload)) {
-          return;
-        }
-        const message = envelope.payload.message;
-        if (!isMessage(message)) {
-          return;
-        }
-        dispatch(upsertMessage(message));
-      }
-    };
+    connect();
 
     return () => {
       closedByCleanup = true;
       setIsRealtimeConnected(false);
-      if (socketRef.current === websocket) {
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+      }
+      reconnectTimer = null;
+      if (socketRef.current === activeSocket) {
         socketRef.current = null;
       }
-      websocket.close();
+      activeSocket?.close();
     };
   }, [conversation?.id, dispatch, sessionId]);
 

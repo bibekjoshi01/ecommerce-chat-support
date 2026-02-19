@@ -26,6 +26,7 @@ from app.services.errors import (
     ConversationModeError,
     ConversationNotFoundError,
     FaqNotFoundError,
+    NoAvailableAgentError,
 )
 
 router = APIRouter()
@@ -86,7 +87,11 @@ def _to_exchange_response(result: BotExchange) -> BotExchangeResponse:
     return BotExchangeResponse(
         conversation=_to_conversation_response(result.conversation),
         customer_message=_to_message_response(result.customer_message),
-        bot_message=_to_message_response(result.bot_message),
+        bot_message=(
+            _to_message_response(result.bot_message)
+            if result.bot_message is not None
+            else None
+        ),
         quick_questions=_to_quick_questions(result.quick_questions),
         show_talk_to_agent=result.show_talk_to_agent,
     )
@@ -107,6 +112,10 @@ def _raise_for_service_error(exc: Exception) -> None:
             status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
         ) from exc
     if isinstance(exc, (ConversationClosedError, ConversationModeError)):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
+    if isinstance(exc, NoAvailableAgentError):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=str(exc)
         ) from exc
@@ -228,6 +237,7 @@ async def post_customer_message(
         FaqNotFoundError,
         ConversationClosedError,
         ConversationModeError,
+        NoAvailableAgentError,
     ) as exc:
         _raise_for_service_error(exc)
     return _to_exchange_response(result)
@@ -253,6 +263,7 @@ async def escalate_to_agent(
         FaqNotFoundError,
         ConversationClosedError,
         ConversationModeError,
+        NoAvailableAgentError,
     ) as exc:
         _raise_for_service_error(exc)
     return _to_exchange_response(result)

@@ -4,7 +4,9 @@ from fastapi import FastAPI
 
 from app.api.router import api_router
 from app.core.config import get_settings
-from app.core.db import close_engine, init_engine
+from app.core.db import close_engine, get_session_factory, init_engine
+from app.domain.enums import AgentPresence
+from app.infra.db.repositories import AgentRepository
 from app.infra.realtime import InMemoryRealtimeHub
 
 settings = get_settings()
@@ -16,6 +18,12 @@ async def lifespan(app: FastAPI):
     engine = init_engine()
     app.state.db_engine = engine
     app.state.realtime_hub = InMemoryRealtimeHub()
+
+    session_factory = get_session_factory()
+    async with session_factory() as session:
+        agents = AgentRepository(session)
+        await agents.set_all_presence(AgentPresence.OFFLINE)
+        await session.commit()
 
     yield
 

@@ -22,7 +22,6 @@ import {
   useLazyListConversationsQuery,
   useRegisterAgentMutation,
   useSendAgentMessageMutation,
-  useSetAgentPresenceMutation,
 } from "../api/agentApi";
 import {
   clearAgentIdentity,
@@ -36,6 +35,9 @@ import {
   upsertConversation,
   upsertConversationMessage,
 } from "./agentSlice";
+
+const WS_RETRY_BASE_DELAY_MS = 500;
+const WS_RETRY_MAX_DELAY_MS = 5000;
 
 const toErrorMessage = (error: unknown): string => {
   if (!error || typeof error !== "object") {
@@ -103,7 +105,6 @@ export const useAgentWorkspaceController = () => {
   const [registerAgent, { isLoading: isRegisteringAgent }] =
     useRegisterAgentMutation();
   const [fetchAgentProfile] = useLazyGetAgentProfileQuery();
-  const [setAgentPresence] = useSetAgentPresenceMutation();
   const [fetchConversations, { isFetching: isRefreshingConversations }] =
     useLazyListConversationsQuery();
   const [fetchConversationMessages, { isFetching: isLoadingMessages }] =
@@ -120,6 +121,7 @@ export const useAgentWorkspaceController = () => {
   const socketRef = useRef<WebSocket | null>(null);
   const subscribedConversationIdRef = useRef<string | null>(null);
   const selectedConversationIdRef = useRef<string | null>(null);
+  const profileRef = useRef<AgentProfile | null>(null);
 
   const {
     agentId,
@@ -132,6 +134,7 @@ export const useAgentWorkspaceController = () => {
   } = agentState;
 
   selectedConversationIdRef.current = selectedConversationId;
+  profileRef.current = profile;
 
   const selectedConversation = useMemo(
     () =>
@@ -177,7 +180,7 @@ export const useAgentWorkspaceController = () => {
     const registered = await registerAgent({
       display_name: fallbackName,
       max_active_chats: 5,
-      start_online: true,
+      start_online: false,
     }).unwrap();
     const persistedIdentity = saveStoredAgentIdentity({
       agentId: registered.id,
@@ -285,96 +288,154 @@ export const useAgentWorkspaceController = () => {
     }
 
     let closedByCleanup = false;
-    const websocket = new WebSocket(
-      buildRealtimeWsUrl({
-        role: "agent",
-        agent_id: agentId,
-      }),
-    );
+    let reconnectAttempt = 0;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let activeSocket: WebSocket | null = null;
 
-    socketRef.current = websocket;
-    subscribedConversationIdRef.current = null;
+    const setLocalPresence = (presence: AgentProfile["presence"]) => {
+      const currentProfile = profileRef.current;
+      if (!currentProfile || currentProfile.presence === presence) {
+        return;
+      }
+      dispatch(
+        setAgentProfile({
+          ...currentProfile,
+          presence,
+        }),
+      );
+    };
 
-    websocket.onopen = () => {
+    const scheduleReconnect = () => {
+      if (closedByCleanup || reconnectTimer) {
+        return;
+      }
+
+      const delay = Math.min(
+        WS_RETRY_MAX_DELAY_MS,
+        WS_RETRY_BASE_DELAY_MS * 2 ** reconnectAttempt,
+      );
+      reconnectAttempt += 1;
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        connect();
+      }, delay);
+    };
+
+    const connect = () => {
       if (closedByCleanup) {
         return;
       }
-      setIsRealtimeConnected(true);
-      setUiError(null);
-      if (selectedConversationIdRef.current) {
-        websocket.send(
-          JSON.stringify({
-            action: "subscribe_conversation",
-            conversation_id: selectedConversationIdRef.current,
-          }),
-        );
-        subscribedConversationIdRef.current = selectedConversationIdRef.current;
-      }
-    };
 
-    websocket.onclose = () => {
-      if (!closedByCleanup) {
+      const websocket = new WebSocket(
+        buildRealtimeWsUrl({
+          role: "agent",
+          agent_id: agentId,
+        }),
+      );
+
+      activeSocket = websocket;
+      socketRef.current = websocket;
+      subscribedConversationIdRef.current = null;
+
+      websocket.onopen = () => {
+        if (closedByCleanup) {
+          return;
+        }
+        reconnectAttempt = 0;
+        setIsRealtimeConnected(true);
+        setUiError(null);
+        setLocalPresence("online");
+        if (selectedConversationIdRef.current) {
+          websocket.send(
+            JSON.stringify({
+              action: "subscribe_conversation",
+              conversation_id: selectedConversationIdRef.current,
+            }),
+          );
+          subscribedConversationIdRef.current = selectedConversationIdRef.current;
+        }
+      };
+
+      websocket.onclose = () => {
+        if (closedByCleanup) {
+          return;
+        }
         setIsRealtimeConnected(false);
-      }
-    };
+        setLocalPresence("offline");
+        subscribedConversationIdRef.current = null;
+        scheduleReconnect();
+      };
 
-    websocket.onerror = () => {
-      setIsRealtimeConnected(false);
-    };
-
-    websocket.onmessage = (event) => {
-      let envelope: RealtimeEnvelope<unknown> | null = null;
-      try {
-        envelope = JSON.parse(event.data) as RealtimeEnvelope<unknown>;
-      } catch (_error) {
-        return;
-      }
-      if (!envelope || typeof envelope.event !== "string") {
-        return;
-      }
-
-      if (envelope.event === "conversation.updated" || envelope.event === "agent.assigned") {
-        if (!isObject(envelope.payload)) {
+      websocket.onerror = () => {
+        if (closedByCleanup) {
           return;
         }
-        const conversation = envelope.payload.conversation;
-        if (!isConversation(conversation)) {
-          return;
-        }
-        dispatch(upsertConversation(conversation));
-        return;
-      }
+        setIsRealtimeConnected(false);
+      };
 
-      if (envelope.event === "chat.closed") {
-        if (!isObject(envelope.payload)) {
+      websocket.onmessage = (event) => {
+        let envelope: RealtimeEnvelope<unknown> | null = null;
+        try {
+          envelope = JSON.parse(event.data) as RealtimeEnvelope<unknown>;
+        } catch (_error) {
           return;
         }
-        const conversation = envelope.payload.conversation;
-        if (isConversation(conversation)) {
+        if (!envelope || typeof envelope.event !== "string") {
+          return;
+        }
+
+        if (
+          envelope.event === "conversation.updated" ||
+          envelope.event === "agent.assigned"
+        ) {
+          if (!isObject(envelope.payload)) {
+            return;
+          }
+          const conversation = envelope.payload.conversation;
+          if (!isConversation(conversation)) {
+            return;
+          }
           dispatch(upsertConversation(conversation));
+          return;
         }
-        return;
-      }
 
-      if (envelope.event === "message.created") {
-        if (!isObject(envelope.payload)) {
+        if (envelope.event === "chat.closed") {
+          if (!isObject(envelope.payload)) {
+            return;
+          }
+          const conversation = envelope.payload.conversation;
+          if (isConversation(conversation)) {
+            dispatch(upsertConversation(conversation));
+          }
           return;
         }
-        const message = envelope.payload.message;
-        if (!isMessage(message)) {
-          return;
+
+        if (envelope.event === "message.created") {
+          if (!isObject(envelope.payload)) {
+            return;
+          }
+          const message = envelope.payload.message;
+          if (!isMessage(message)) {
+            return;
+          }
+          dispatch(upsertConversationMessage(message));
         }
-        dispatch(upsertConversationMessage(message));
-      }
+      };
     };
+
+    connect();
 
     return () => {
       closedByCleanup = true;
       setIsRealtimeConnected(false);
-      if (socketRef.current === websocket) {
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+      }
+      reconnectTimer = null;
+      if (socketRef.current === activeSocket) {
         socketRef.current = null;
       }
-      websocket.close();
+      activeSocket?.close();
     };
   }, [agentId, dispatch]);
 
@@ -411,36 +472,6 @@ export const useAgentWorkspaceController = () => {
       subscribedConversationIdRef.current = selectedConversationId;
     }
   }, [selectedConversationId, isRealtimeConnected]);
-
-  useEffect(() => {
-    if (!agentId) {
-      return;
-    }
-
-    let active = true;
-    const setOnline = async () => {
-      try {
-        const updatedProfile = await setAgentPresence({
-          agentId,
-          presence: "online",
-        }).unwrap();
-        if (active) {
-          dispatch(setAgentProfile(updatedProfile));
-        }
-      } catch (_error) {
-        return;
-      }
-    };
-
-    void setOnline();
-    return () => {
-      active = false;
-      void setAgentPresence({
-        agentId,
-        presence: "offline",
-      });
-    };
-  }, [agentId, dispatch, setAgentPresence]);
 
   const setFilter = (value: "all" | "automated" | "agent" | "closed") => {
     dispatch(setStatusFilter(value));

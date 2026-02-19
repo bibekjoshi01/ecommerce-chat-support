@@ -21,6 +21,12 @@ class InMemoryRealtimeHub:
     async def connect(self, websocket: WebSocket) -> None:
         await websocket.accept()
 
+    def subscriber_count(self, channel: str) -> int:
+        subscribers = self._channel_subscribers.get(channel)
+        if subscribers is None:
+            return 0
+        return len(subscribers)
+
     async def disconnect(self, websocket: WebSocket) -> None:
         async with self._lock:
             channels = self._socket_channels.pop(websocket, set())

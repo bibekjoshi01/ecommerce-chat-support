@@ -52,10 +52,11 @@ const chatSlice = createSlice({
     },
     appendExchange(state, action: PayloadAction<BotExchangeResponse>) {
       state.conversation = action.payload.conversation;
-      state.messages = mergeMessages(state.messages, [
-        action.payload.customer_message,
-        action.payload.bot_message,
-      ]);
+      const incoming = [action.payload.customer_message];
+      if (action.payload.bot_message) {
+        incoming.push(action.payload.bot_message);
+      }
+      state.messages = mergeMessages(state.messages, incoming);
       state.quickQuestions = action.payload.quick_questions;
     },
     upsertConversation(state, action: PayloadAction<Conversation>) {

@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.enums import (
+    AgentPresence,
     ConversationStatus,
     MessageKind,
     MessageSenderType,
@@ -28,6 +29,7 @@ from app.services.errors import (
     ConversationModeError,
     ConversationNotFoundError,
     FaqNotFoundError,
+    NoAvailableAgentError,
 )
 
 
@@ -49,7 +51,7 @@ class ConversationMessages:
 class BotExchange:
     conversation: Conversation
     customer_message: Message
-    bot_message: Message
+    bot_message: Message | None
     quick_questions: list[FaqEntry]
     show_talk_to_agent: bool
 
@@ -217,32 +219,24 @@ class ConversationService:
 
         if conversation.status == ConversationStatus.AGENT:
             assigned_agent = await self._resolve_assigned_agent(conversation)
-            delivery_event = await self.messages.create(
-                conversation_id=conversation.id,
-                sender_type=MessageSenderType.SYSTEM,
-                kind=MessageKind.EVENT,
-                content=(
-                    f"Message sent to {assigned_agent.display_name}. "
-                    "They will reply shortly."
-                ),
-                metadata_json={
-                    "assigned_agent_id": str(assigned_agent.id),
-                    "show_talk_to_agent": False,
-                },
-            )
+            assignment_changed = conversation.assigned_agent_id != assigned_agent.id
+            if assignment_changed:
+                conversation.assigned_agent_id = assigned_agent.id
+                conversation.requested_agent_at = datetime.now(UTC)
 
             await self.conversations.touch(conversation)
             await self.session.commit()
             await self.session.refresh(conversation)
 
             await self._emit_message_created(customer_message)
-            await self._emit_message_created(delivery_event)
             await self._emit_conversation_updated(conversation)
+            if assignment_changed:
+                await self._emit_agent_assigned(conversation, assigned_agent)
 
             return BotExchange(
                 conversation=conversation,
                 customer_message=customer_message,
-                bot_message=delivery_event,
+                bot_message=None,
                 quick_questions=[],
                 show_talk_to_agent=False,
             )
@@ -315,11 +309,16 @@ class ConversationService:
         )
 
         assigned_agent = await self._resolve_assigned_agent(conversation)
+        assignment_changed = conversation.assigned_agent_id != assigned_agent.id
+        agent_display_name = self._display_agent_name(assigned_agent)
 
         if conversation.status != ConversationStatus.AGENT:
             conversation.status = ConversationLifecycle.transition(
                 conversation.status, TransitionAction.ESCALATE_TO_AGENT
             )
+            assignment_changed = True
+
+        if assignment_changed:
             conversation.assigned_agent_id = assigned_agent.id
             conversation.requested_agent_at = datetime.now(UTC)
             await self.conversations.touch(conversation)
@@ -329,12 +328,12 @@ class ConversationService:
             sender_type=MessageSenderType.SYSTEM,
             kind=MessageKind.EVENT,
             content=(
-                f"{assigned_agent.display_name} is connected. "
+                f"{agent_display_name} is connected. "
                 "You can continue typing your message."
             ),
             metadata_json={
                 "assigned_agent_id": str(assigned_agent.id),
-                "assigned_agent_name": assigned_agent.display_name,
+                "assigned_agent_name": agent_display_name,
                 "show_talk_to_agent": False,
             },
         )
@@ -384,7 +383,7 @@ class ConversationService:
     async def _resolve_assigned_agent(self, conversation: Conversation) -> Agent:
         if conversation.assigned_agent_id:
             existing = await self.agents.get_by_id(conversation.assigned_agent_id)
-            if existing is not None:
+            if existing is not None and existing.presence == AgentPresence.ONLINE:
                 return existing
 
         return await self._pick_available_agent()
@@ -392,10 +391,7 @@ class ConversationService:
     async def _pick_available_agent(self) -> Agent:
         online_agents = await self.agents.list_online()
         if not online_agents:
-            return await self.agents.create(
-                display_name="Support Agent",
-                max_active_chats=5,
-            )
+            raise NoAvailableAgentError()
 
         for agent in online_agents:
             active_count = await self.conversations.count_active_assigned_to_agent(
@@ -503,3 +499,10 @@ class ConversationService:
             "created_at": agent.created_at.isoformat(),
             "updated_at": agent.updated_at.isoformat(),
         }
+
+    @staticmethod
+    def _display_agent_name(agent: Agent) -> str:
+        display_name = agent.display_name.strip()
+        if display_name:
+            return display_name
+        return "Support agent"

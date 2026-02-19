@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import Select, and_, func, or_, select
+from sqlalchemy import Select, and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.enums import (
@@ -183,6 +183,15 @@ class AgentRepository:
         )
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
+
+    async def set_all_presence(self, presence: AgentPresence) -> int:
+        stmt = update(Agent).values(
+            presence=presence,
+            updated_at=datetime.now(UTC),
+        )
+        result = await self.session.execute(stmt)
+        await self.session.flush()
+        return int(result.rowcount or 0)
 
     async def create(
         self,

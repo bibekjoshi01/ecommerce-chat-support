@@ -44,7 +44,7 @@ export interface ConversationMessagesResponse {
 export interface BotExchangeResponse {
   conversation: Conversation;
   customer_message: Message;
-  bot_message: Message;
+  bot_message: Message | null;
   quick_questions: QuickQuestion[];
   show_talk_to_agent: boolean;
 }

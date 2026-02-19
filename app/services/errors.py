@@ -62,3 +62,10 @@ class AgentConversationModeError(ValueError):
         )
         self.conversation_id = conversation_id
         self.status = status
+
+
+class NoAvailableAgentError(ValueError):
+    def __init__(self) -> None:
+        super().__init__(
+            "No agents are currently available. Please try again shortly."
+        )

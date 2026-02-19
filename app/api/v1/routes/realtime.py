@@ -6,6 +6,7 @@ from fastapi import APIRouter, WebSocket
 from starlette.websockets import WebSocketDisconnect
 
 from app.core.db import get_session_factory
+from app.domain.enums import AgentPresence
 from app.infra.db.repositories import AgentRepository, ConversationRepository
 from app.infra.realtime.channels import (
     AGENT_PRESENCE_CHANNEL,
@@ -44,6 +45,7 @@ async def realtime_ws(websocket: WebSocket) -> None:
     )
     requested_agent_id = _parse_uuid(websocket.query_params.get("agent_id"))
     customer_session_id = websocket.query_params.get("customer_session_id", "").strip()
+    tracked_agent_id: UUID | None = None
 
     initial_channels: list[str] = []
 
@@ -109,6 +111,7 @@ async def realtime_ws(websocket: WebSocket) -> None:
                 AGENT_PRESENCE_CHANNEL,
             ]
         )
+        tracked_agent_id = requested_agent_id
         if requested_conversation_id is not None:
             initial_channels.append(conversation_channel(requested_conversation_id))
     else:
@@ -132,6 +135,14 @@ async def realtime_ws(websocket: WebSocket) -> None:
             "sent_at": datetime.now(UTC).isoformat(),
         }
     )
+
+    if tracked_agent_id is not None:
+        async with session_factory() as session:
+            agents = AgentRepository(session)
+            agent = await agents.get_by_id(tracked_agent_id)
+            if agent is not None and agent.presence != AgentPresence.ONLINE:
+                await agents.update_presence(agent, AgentPresence.ONLINE)
+                await session.commit()
 
     try:
         while True:
@@ -261,3 +272,20 @@ async def realtime_ws(websocket: WebSocket) -> None:
         return
     finally:
         await hub.disconnect(websocket)
+        if tracked_agent_id is None:
+            return
+
+        agent_channel = agent_queue_channel(tracked_agent_id)
+        if hasattr(hub, "subscriber_count"):
+            remaining_connections = int(hub.subscriber_count(agent_channel))
+            if remaining_connections > 0:
+                return
+
+        async with session_factory() as session:
+            agents = AgentRepository(session)
+            agent = await agents.get_by_id(tracked_agent_id)
+            if agent is None:
+                return
+            if agent.presence != AgentPresence.OFFLINE:
+                await agents.update_presence(agent, AgentPresence.OFFLINE)
+                await session.commit()
