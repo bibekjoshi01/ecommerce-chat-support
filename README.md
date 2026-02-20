@@ -162,3 +162,4 @@ python run_seed.py
 
 - `docs/01-system-architecture.md`
 - `docs/02-api-and-events.md`
+- `docs/03-validation-checklist.md`
