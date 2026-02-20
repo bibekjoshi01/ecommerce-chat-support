@@ -617,3 +617,41 @@ async def test_queued_escalation_remains_idempotent_for_system_message(
         and "queue" in message.content.lower()
     ]
     assert len(queue_system_messages) == 1
+
+
+@pytest.mark.asyncio
+async def test_queued_conversation_gets_assigned_when_agent_becomes_available(
+    service: ConversationService,
+) -> None:
+    bootstrap = await service.start_customer_conversation(
+        customer_session_id="session-queue-to-assigned-1",
+        force_new=False,
+    )
+
+    assert isinstance(service.agents, FakeAgentRepository)
+    for agent in service.agents.agents:
+        agent.presence = AgentPresence.OFFLINE
+
+    first = await service.escalate_to_agent(
+        bootstrap.conversation.id,
+        customer_session_id="session-queue-to-assigned-1",
+    )
+    assert first.conversation.status == ConversationStatus.AGENT
+    assert first.conversation.assigned_agent_id is None
+    assert first.bot_message is not None
+    assert "queue" in first.bot_message.content.lower()
+
+    available_agent = service.agents.agents[0]
+    available_agent.presence = AgentPresence.ONLINE
+
+    second = await service.escalate_to_agent(
+        bootstrap.conversation.id,
+        customer_session_id="session-queue-to-assigned-1",
+    )
+
+    assert second.conversation.status == ConversationStatus.AGENT
+    assert second.conversation.assigned_agent_id == available_agent.id
+    assert second.show_talk_to_agent is False
+    assert second.bot_message is not None
+    assert second.bot_message.sender_type == MessageSenderType.SYSTEM
+    assert "connected" in second.bot_message.content.lower()
