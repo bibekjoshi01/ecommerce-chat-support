@@ -72,6 +72,19 @@ docker compose up -d postgres redis
 alembic upgrade head
 ```
 
+`Bind for 0.0.0.0:6379 failed: port is already allocated`
+
+- Another local service/container may be already using Redis default port `6379`.
+- Set a different host port in `.env` and keep `REDIS_URL` aligned, for example:
+  - `REDIS_PORT=6380`
+  - `REDIS_URL=redis://localhost:6380/0`
+
+`failed to bind host port 0.0.0.0:5432/tcp: address already in use`
+
+- Another local service/container is already using PostgreSQL default port `5432`.
+- Change `.env` to a free host port, for example:
+  - `POSTGRES_PORT=5434`
+
 4. Seed FAQ + default agent accounts.
 
 ```bash
@@ -92,9 +105,28 @@ npm install
 npm run dev
 ```
 
+## Local Postgres Instead of Docker (Optional)
+
+If you run PostgreSQL locally, set `.env` accordingly:
+
+- `POSTGRES_HOST`
+- `POSTGRES_PORT`
+- `POSTGRES_DB`
+- `POSTGRES_USER`
+- `POSTGRES_PASSWORD`
+
+Then run:
+
+```bash
+alembic upgrade head
+python run_seed.py
+uvicorn app.main:app --reload --port 8000
+```
+
 ## Access URLs
 
-- Frontend: `http://127.0.0.1:5173`
+- Customer Chat: `http://127.0.0.1:5173`
+- Agent Chat: `http://127.0.0.1:5173/agent`
 - API docs: `http://127.0.0.1:8000/docs`
 - Health: `http://127.0.0.1:8000/api/v1/health`
 - DB health: `http://127.0.0.1:8000/api/v1/health/db`
@@ -136,24 +168,6 @@ Hook coverage:
 
 - pre-commit: `ruff check app tests`
 - pre-push: `mypy app`, `pytest -q`, `cd web && npm run build`
-
-## Local Postgres Instead of Docker (Optional)
-
-If you run PostgreSQL locally, set `.env` accordingly:
-
-- `POSTGRES_HOST`
-- `POSTGRES_PORT`
-- `POSTGRES_DB`
-- `POSTGRES_USER`
-- `POSTGRES_PASSWORD`
-
-Then run:
-
-```bash
-alembic upgrade head
-python run_seed.py
-uvicorn app.main:app --reload --port 8000
-```
 
 ## Troubleshooting
 
