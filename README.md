@@ -122,6 +122,21 @@ cd web
 npm run build
 ```
 
+## Pre-commit Hooks
+
+Install once (recommended):
+
+```bash
+pip install -e '.[dev]'
+pre-commit install
+pre-commit install --hook-type pre-push
+```
+
+Hook coverage:
+
+- pre-commit: `ruff check app tests`
+- pre-push: `mypy app`, `pytest -q`, `cd web && npm run build`
+
 ## Local Postgres Instead of Docker (Optional)
 
 If you run PostgreSQL locally, set `.env` accordingly:
