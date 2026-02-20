@@ -131,6 +131,15 @@ uvicorn app.main:app --reload --port 8000
 - Health: `http://127.0.0.1:8000/api/v1/health`
 - DB health: `http://127.0.0.1:8000/api/v1/health/db`
 
+## Production Security Baseline
+
+For production deployments, configure:
+
+- `AGENT_AUTH_SECRET` with a strong (32+ chars) secret
+- `CORS_ALLOWED_ORIGINS_RAW` with explicit frontend origin(s)
+- `TRUSTED_HOSTS_RAW` with explicit API hostnames
+- `FORCE_HTTPS=true` when TLS termination is at app/proxy boundary
+
 ## Seeded Agent Accounts (Development)
 
 Created by `python run_seed.py`:
