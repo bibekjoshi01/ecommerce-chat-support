@@ -149,7 +149,7 @@ async def register_agent(
     agent = await service.register_agent(
         display_name=payload.display_name,
         max_active_chats=payload.max_active_chats,
-        start_online=False,
+        start_online=payload.start_online,
     )
     return _to_agent_response(agent)
 

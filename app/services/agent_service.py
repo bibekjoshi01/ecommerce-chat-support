@@ -141,6 +141,9 @@ class AgentService:
 
         assigned_now = False
         if conversation.assigned_agent_id is None:
+            # FIXME: Add row-level locking on conversation claim to prevent
+            # two agents from claiming the same waiting conversation concurrently.
+            # Planned approach: SELECT ... FOR UPDATE (or SKIP LOCKED queue pick).
             await self.conversations.assign_agent(conversation, agent.id)
             assigned_now = True
 
@@ -190,6 +193,8 @@ class AgentService:
             return AgentCloseResult(conversation=conversation, system_message=None)
 
         if conversation.assigned_agent_id is None:
+            # FIXME: Same claim-race caveat as send_agent_message().
+            # Closing an unassigned AGENT conversation should use a lock-backed claim.
             await self.conversations.assign_agent(conversation, agent.id)
 
         conversation.status = ConversationLifecycle.transition(
