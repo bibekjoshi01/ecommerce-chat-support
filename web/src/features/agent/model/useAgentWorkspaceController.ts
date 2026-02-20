@@ -428,6 +428,8 @@ export const useAgentWorkspaceController = () => {
       }
 
       const websocket = new WebSocket(
+        // FIXME: access_token in websocket query is temporary. Replace with
+        // short-lived websocket ticket or secure cookie-backed auth.
         buildRealtimeWsUrl({
           role: "agent",
           access_token: storedSession.accessToken,

@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.db import get_db_session
+from app.core.rate_limit import InMemoryRateLimiter, RateLimitRule
 from app.core.security import decode_agent_access_token
 from app.domain.enums import ConversationStatus
 from app.infra.db.repositories import AgentUserRepository
@@ -40,6 +41,8 @@ from app.services.errors import (
 router = APIRouter()
 settings = get_settings()
 bearer_scheme = HTTPBearer(auto_error=False)
+agent_login_rate_limiter = InMemoryRateLimiter()
+AGENT_LOGIN_RULE = RateLimitRule(limit=10, window_seconds=60)
 
 
 async def get_agent_service(
@@ -141,6 +144,21 @@ def _raise_for_service_error(exc: Exception) -> None:
     raise exc
 
 
+async def _enforce_login_rate_limit(request: Request, username: str) -> None:
+    client_ip = request.client.host if request.client and request.client.host else "unknown-client"
+    normalized_username = username.strip().lower()
+    limiter_key = f"agent:login:{client_ip}:{normalized_username}"
+
+    allowed = await agent_login_rate_limiter.allow(limiter_key, AGENT_LOGIN_RULE)
+    if allowed:
+        return
+
+    raise HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail="Too many login attempts. Please retry shortly.",
+    )
+
+
 @router.post("/register", response_model=AgentResponse)
 async def register_agent(
     payload: RegisterAgentRequest,
@@ -157,8 +175,11 @@ async def register_agent(
 @router.post("/auth/login", response_model=AgentSessionResponse)
 async def login_agent(
     payload: AgentLoginRequest,
+    request: Request,
     service: AgentAuthService = Depends(get_agent_auth_service),
 ) -> AgentSessionResponse:
+    await _enforce_login_rate_limit(request, payload.username)
+
     try:
         result = await service.login(
             username=payload.username,

@@ -84,6 +84,8 @@ async def realtime_ws(websocket: WebSocket) -> None:
 
         initial_channels.append(conversation_channel(requested_conversation_id))
     elif role == "agent":
+        # FIXME: Access token is accepted via query parameter for browser websocket
+        # compatibility. Replace with short-lived WS ticket or secure cookie auth.
         access_token = websocket.query_params.get("access_token", "").strip()
         if not access_token:
             await websocket.close(

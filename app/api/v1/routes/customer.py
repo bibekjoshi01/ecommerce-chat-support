@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_db_session
+from app.core.rate_limit import InMemoryRateLimiter, RateLimitRule
 from app.schemas.customer_chat import (
     BotExchangeResponse,
     ConversationBootstrapResponse,
@@ -30,6 +31,11 @@ from app.services.errors import (
 )
 
 router = APIRouter()
+customer_rate_limiter = InMemoryRateLimiter()
+START_CONVERSATION_RULE = RateLimitRule(limit=20, window_seconds=60)
+MESSAGE_RULE = RateLimitRule(limit=30, window_seconds=60)
+QUICK_REPLY_RULE = RateLimitRule(limit=30, window_seconds=60)
+ESCALATION_RULE = RateLimitRule(limit=10, window_seconds=60)
 
 
 async def get_conversation_service(
@@ -126,6 +132,26 @@ def _raise_for_service_error(exc: Exception) -> None:
     raise exc
 
 
+def _client_id_from_request(request: Request) -> str:
+    if request.client is None:
+        return "unknown-client"
+    return request.client.host or "unknown-client"
+
+
+async def _enforce_customer_rate_limit(
+    *,
+    key: str,
+    rule: RateLimitRule,
+) -> None:
+    allowed = await customer_rate_limiter.allow(key, rule)
+    if allowed:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail="Too many requests. Please retry shortly.",
+    )
+
+
 @router.get("/quick-questions", response_model=list[QuickQuestionResponse])
 async def list_quick_questions(
     service: ConversationService = Depends(get_conversation_service),
@@ -137,8 +163,19 @@ async def list_quick_questions(
 @router.post("/conversations/start", response_model=ConversationBootstrapResponse)
 async def start_conversation(
     payload: StartConversationRequest,
+    request: Request,
     service: ConversationService = Depends(get_conversation_service),
 ) -> ConversationBootstrapResponse:
+    session_key = (
+        payload.customer_session_id.strip()
+        if payload.customer_session_id and payload.customer_session_id.strip()
+        else _client_id_from_request(request)
+    )
+    await _enforce_customer_rate_limit(
+        key=f"customer:start:{session_key}",
+        rule=START_CONVERSATION_RULE,
+    )
+
     result = await service.start_customer_conversation(
         customer_session_id=payload.customer_session_id,
         force_new=payload.force_new,
@@ -201,9 +238,15 @@ async def get_conversation_messages(
 async def send_quick_reply(
     conversation_id: UUID,
     faq_slug: str,
+    request: Request,
     service: ConversationService = Depends(get_conversation_service),
     customer_session_id: str = Depends(get_customer_session_id),
 ) -> BotExchangeResponse:
+    await _enforce_customer_rate_limit(
+        key=f"customer:quick_reply:{customer_session_id}:{_client_id_from_request(request)}",
+        rule=QUICK_REPLY_RULE,
+    )
+
     try:
         result = await service.send_quick_reply(
             conversation_id=conversation_id,
@@ -227,9 +270,15 @@ async def send_quick_reply(
 async def post_customer_message(
     conversation_id: UUID,
     payload: CustomerTextMessageRequest,
+    request: Request,
     service: ConversationService = Depends(get_conversation_service),
     customer_session_id: str = Depends(get_customer_session_id),
 ) -> BotExchangeResponse:
+    await _enforce_customer_rate_limit(
+        key=f"customer:message:{customer_session_id}:{_client_id_from_request(request)}",
+        rule=MESSAGE_RULE,
+    )
+
     try:
         result = await service.send_customer_text_message(
             conversation_id=conversation_id,
@@ -255,9 +304,15 @@ async def post_customer_message(
 )
 async def escalate_to_agent(
     conversation_id: UUID,
+    request: Request,
     service: ConversationService = Depends(get_conversation_service),
     customer_session_id: str = Depends(get_customer_session_id),
 ) -> BotExchangeResponse:
+    await _enforce_customer_rate_limit(
+        key=f"customer:escalate:{customer_session_id}:{_client_id_from_request(request)}",
+        rule=ESCALATION_RULE,
+    )
+
     try:
         result = await service.escalate_to_agent(
             conversation_id=conversation_id,

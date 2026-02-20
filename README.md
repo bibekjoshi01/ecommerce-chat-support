@@ -139,6 +139,7 @@ For production deployments, configure:
 - `CORS_ALLOWED_ORIGINS_RAW` with explicit frontend origin(s)
 - `TRUSTED_HOSTS_RAW` with explicit API hostnames
 - `FORCE_HTTPS=true` when TLS termination is at app/proxy boundary
+- request throttling for auth/chat endpoints (basic in-memory limiter included)
 
 ## Seeded Agent Accounts (Development)
 
