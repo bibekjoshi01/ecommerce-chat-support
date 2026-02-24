@@ -73,7 +73,9 @@ export const AgentConversationList = ({
           conversation.status === "closed"
             ? "Closed"
             : conversation.status === "agent"
-              ? "Active"
+              ? conversation.assigned_agent_id
+                ? "Active"
+                : "Queue"
               : "Waiting";
         const statusClass =
           conversation.status === "closed"

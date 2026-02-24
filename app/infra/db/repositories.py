@@ -110,6 +110,24 @@ class ConversationRepository:
         )
         await self.session.flush()
 
+    async def try_assign_agent(self, conversation_id: UUID, agent_id: UUID) -> bool:
+        stmt = (
+            update(Conversation)
+            .where(
+                Conversation.id == conversation_id,
+                Conversation.assigned_agent_id.is_(None),
+            )
+            .values(
+                assigned_agent_id=agent_id,
+                requested_agent_at=func.coalesce(
+                    Conversation.requested_agent_at, func.now()
+                ),
+                updated_at=func.now(),
+            )
+        )
+        result = await self.session.execute(stmt)
+        return int(result.rowcount or 0) > 0
+
 
 class MessageRepository:
     def __init__(self, session: AsyncSession) -> None:

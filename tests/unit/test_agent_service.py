@@ -127,6 +127,16 @@ class FakeConversationRepository:
             UTC
         )
 
+    async def try_assign_agent(self, conversation_id: UUID, agent_id: UUID) -> bool:
+        conversation = self.conversations.get(conversation_id)
+        if conversation is None or conversation.assigned_agent_id is not None:
+            return False
+        conversation.assigned_agent_id = agent_id
+        conversation.requested_agent_at = conversation.requested_agent_at or datetime.now(
+            UTC
+        )
+        return True
+
     async def touch(self, conversation: FakeConversation) -> None:
         conversation.updated_at = datetime.now(UTC)
 

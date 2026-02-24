@@ -95,41 +95,6 @@ class AgentService:
         # Emit presence changed so frontends and queues react
         await self._emit_agent_presence_changed(agent)
 
-        # When an agent goes offline, close their active agent-mode conversations
-        # and notify the customer with a system message explaining the disconnect.
-        if presence == AgentPresence.OFFLINE:
-            list_assigned = getattr(self.conversations, "list_assigned_active_to_agent", None)
-            if list_assigned is None:
-                return agent
-
-            assigned_conversations = await list_assigned(agent.id)
-            for convo in assigned_conversations:
-                convo.status = ConversationStatus.CLOSED
-                convo.closed_at = datetime.now(UTC)
-
-                system_message = await self.messages.create(
-                    conversation_id=convo.id,
-                    sender_type=MessageSenderType.SYSTEM,
-                    kind=MessageKind.EVENT,
-                    content=(
-                        f"{agent.display_name} disconnected. "
-                        "Please start a new chat to continue."
-                    ),
-                    metadata_json={
-                        "disconnected_agent_id": str(agent.id),
-                        "notification": True,
-                        "notification_type": "agent_disconnected",
-                    },
-                )
-
-                await self.conversations.touch(convo)
-                await self.session.commit()
-                await self.session.refresh(convo)
-
-                await self._emit_message_created(system_message)
-                await self._emit_conversation_updated(convo)
-                await self._emit_chat_closed(convo)
-
         return agent
 
     async def get_agent(self, agent_id: UUID) -> Agent:
@@ -200,11 +165,22 @@ class AgentService:
 
         assigned_now = False
         if conversation.assigned_agent_id is None:
-            # FIXME: Add row-level locking on conversation claim to prevent
-            # two agents from claiming the same waiting conversation concurrently.
-            # Planned approach: SELECT ... FOR UPDATE (or SKIP LOCKED queue pick).
-            await self.conversations.assign_agent(conversation, agent.id)
-            assigned_now = True
+            assigned_now = await self.conversations.try_assign_agent(
+                conversation.id, agent.id
+            )
+            if assigned_now:
+                conversation.assigned_agent_id = agent.id
+                conversation.requested_agent_at = (
+                    conversation.requested_agent_at or datetime.now(UTC)
+                )
+            else:
+                refreshed = await self.conversations.get_by_id(conversation.id)
+                if (
+                    refreshed is not None
+                    and refreshed.assigned_agent_id is not None
+                    and refreshed.assigned_agent_id != agent.id
+                ):
+                    raise AgentConversationAccessDeniedError(conversation.id, agent.id)
 
         cleaned_content = content.strip()
         if not cleaned_content:
@@ -258,9 +234,22 @@ class AgentService:
             return AgentCloseResult(conversation=conversation, system_message=None)
 
         if conversation.assigned_agent_id is None:
-            # FIXME: Same claim-race caveat as send_agent_message().
-            # Closing an unassigned AGENT conversation should use a lock-backed claim.
-            await self.conversations.assign_agent(conversation, agent.id)
+            assigned_now = await self.conversations.try_assign_agent(
+                conversation.id, agent.id
+            )
+            if assigned_now:
+                conversation.assigned_agent_id = agent.id
+                conversation.requested_agent_at = (
+                    conversation.requested_agent_at or datetime.now(UTC)
+                )
+            else:
+                refreshed = await self.conversations.get_by_id(conversation.id)
+                if (
+                    refreshed is not None
+                    and refreshed.assigned_agent_id is not None
+                    and refreshed.assigned_agent_id != agent.id
+                ):
+                    raise AgentConversationAccessDeniedError(conversation.id, agent.id)
 
         conversation.status = ConversationLifecycle.transition(
             conversation.status,
