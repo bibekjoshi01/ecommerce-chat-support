@@ -103,6 +103,8 @@ const isMessage = (value: unknown): value is Message => {
 const shouldShowConversationForFilter = (
   conversation: Conversation,
   statusFilter: AgentConversationFilter,
+  messagesByConversation?: Record<string, Message[]>,
+  unreadByConversation?: Record<string, number>,
 ) => {
   if (conversation.status === "automated") {
     return false;
@@ -113,16 +115,25 @@ const shouldShowConversationForFilter = (
   if (statusFilter === "closed") {
     return conversation.status === "closed";
   }
+
+  const convMessages = messagesByConversation?.[conversation.id] ?? [];
+  const hasAgentMessage = convMessages.some((m) => m.sender_type === "agent");
+  const unread = unreadByConversation?.[conversation.id] ?? 0;
+
+  // Waiting: conversation in agent mode and no agent message yet
   if (statusFilter === "waiting") {
-    return (
-      conversation.status === "agent" && conversation.assigned_agent_id === null
-    );
+    return conversation.status === "agent" && !hasAgentMessage;
   }
+
+  // Active: conversation in agent mode and either agent has messaged or there
+  // are unread customer messages (new activity) — this moves waiting chats
+  // into active when the customer sends the first message.
   if (statusFilter === "active") {
     return (
-      conversation.status === "agent" && conversation.assigned_agent_id !== null
+      conversation.status === "agent" && (hasAgentMessage || unread > 0)
     );
   }
+
   return false;
 };
 
@@ -346,6 +357,8 @@ export const useAgentWorkspaceController = () => {
           shouldShowConversationForFilter(
             response.conversation,
             statusFilterRef.current,
+            agentState.messagesByConversation,
+            agentState.unreadByConversation,
           )
         ) {
           dispatch(upsertConversation(response.conversation));
@@ -523,7 +536,12 @@ export const useAgentWorkspaceController = () => {
           const conversation = envelope.payload.conversation;
           if (isConversation(conversation)) {
             if (
-              shouldShowConversationForFilter(conversation, statusFilterRef.current)
+              shouldShowConversationForFilter(
+                conversation,
+                statusFilterRef.current,
+                agentState.messagesByConversation,
+                agentState.unreadByConversation,
+              )
             ) {
               dispatch(upsertConversation(conversation));
             } else {
@@ -548,7 +566,20 @@ export const useAgentWorkspaceController = () => {
             void refreshConversations();
             return;
           }
-          dispatch(upsertConversationMessage(message));
+            dispatch(upsertConversationMessage(message));
+
+            // Auto-select and promote waiting conversation to active when a
+            // customer sends the first message while agent is viewing "active".
+            if (
+              message.sender_type === "customer" &&
+              statusFilterRef.current === "active" &&
+              selectedConversationIdRef.current !== message.conversation_id
+            ) {
+              // Ensure conversation is visible in active list (refresh to update
+              // conversations state if necessary) and select it.
+              void refreshConversations();
+              dispatch(selectConversation(message.conversation_id));
+            }
         }
       };
     };
