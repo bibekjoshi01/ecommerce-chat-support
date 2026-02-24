@@ -1,13 +1,6 @@
 import { FetchBaseQueryError } from "@reduxjs/toolkit/query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-
-import { useAppDispatch, useAppSelector } from "../../../app/hooks";
-import {
-  clearStoredAgentSession,
-  loadStoredAgentSession,
-} from "../../../shared/lib/agentSession";
-import { buildRealtimeWsUrl } from "../../../shared/lib/realtime";
 import type {
   AgentProfile,
   Conversation,
@@ -35,6 +28,12 @@ import {
   upsertConversationMessage,
 } from "./agentSlice";
 import type { AgentConversationFilter } from "./agentSlice";
+import { useAppDispatch, useAppSelector } from "../../../app/hooks";
+import {
+  clearStoredAgentSession,
+  loadStoredAgentSession,
+} from "../../../shared/lib/agentSession";
+import { buildRealtimeWsUrl } from "../../../shared/lib/realtime";
 
 const WS_RETRY_BASE_DELAY_MS = 500;
 const WS_RETRY_MAX_DELAY_MS = 5000;
@@ -103,8 +102,6 @@ const isMessage = (value: unknown): value is Message => {
 const shouldShowConversationForFilter = (
   conversation: Conversation,
   statusFilter: AgentConversationFilter,
-  messagesByConversation?: Record<string, Message[]>,
-  unreadByConversation?: Record<string, number>,
 ) => {
   if (conversation.status === "automated") {
     return false;
@@ -115,16 +112,6 @@ const shouldShowConversationForFilter = (
   if (statusFilter === "closed") {
     return conversation.status === "closed";
   }
-
-  const convMessages = messagesByConversation?.[conversation.id] ?? [];
-  // If we don't have messages cached for the conversation, fall back to
-  // server-provided flag so classification persists across refresh.
-  if (convMessages.length === 0) {
-    // reading the server-provided flag is still useful elsewhere; keep check
-    // for potential future logic but avoid creating unused locals.
-    void ((conversation as any).has_agent_replied === true);
-  }
-
   // Active: conversation in agent mode. We treat all conversations in agent
   // mode as active (no separate waiting bucket).
   if (statusFilter === "active") {
@@ -352,14 +339,7 @@ export const useAgentWorkspaceController = () => {
         if (!active) {
           return;
         }
-        if (
-          shouldShowConversationForFilter(
-            response.conversation,
-            statusFilterRef.current,
-            agentState.messagesByConversation,
-            agentState.unreadByConversation,
-          )
-        ) {
+        if (shouldShowConversationForFilter(response.conversation, statusFilterRef.current)) {
           dispatch(upsertConversation(response.conversation));
         } else {
           dispatch(removeConversation(response.conversation.id));
@@ -534,14 +514,7 @@ export const useAgentWorkspaceController = () => {
           }
           const conversation = envelope.payload.conversation;
           if (isConversation(conversation)) {
-            if (
-              shouldShowConversationForFilter(
-                conversation,
-                statusFilterRef.current,
-                agentState.messagesByConversation,
-                agentState.unreadByConversation,
-              )
-            ) {
+            if (shouldShowConversationForFilter(conversation, statusFilterRef.current)) {
               dispatch(upsertConversation(conversation));
             } else {
               dispatch(removeConversation(conversation.id));
