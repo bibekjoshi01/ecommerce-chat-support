@@ -117,21 +117,20 @@ const shouldShowConversationForFilter = (
   }
 
   const convMessages = messagesByConversation?.[conversation.id] ?? [];
-  const hasAgentMessage = convMessages.some((m) => m.sender_type === "agent");
+  let hasAgentMessage = convMessages.some((m) => m.sender_type === "agent");
+  // If we don't have messages cached for the conversation, fall back to
+  // server-provided flag so classification persists across refresh.
+  if (convMessages.length === 0) {
+    hasAgentMessage = (conversation as any).has_agent_replied === true;
+  }
   const unread = unreadByConversation?.[conversation.id] ?? 0;
 
-  // Waiting: conversation in agent mode and no agent message yet
-  if (statusFilter === "waiting") {
-    return conversation.status === "agent" && !hasAgentMessage;
-  }
-
-  // Active: conversation in agent mode and either agent has messaged or there
-  // are unread customer messages (new activity) — this moves waiting chats
-  // into active when the customer sends the first message.
+  // Active: conversation in agent mode. We treat all conversations in agent
+  // mode as active (no separate waiting bucket).
   if (statusFilter === "active") {
-    return (
-      conversation.status === "agent" && (hasAgentMessage || unread > 0)
-    );
+    // Treat every conversation in agent mode as active (ignore hasAgentMessage
+    // and unread heuristics for now).
+    return conversation.status === "agent";
   }
 
   return false;
@@ -709,10 +708,8 @@ export const useAgentWorkspaceController = () => {
       // agent message for this conversation, promote the UI to the active
       // filter and select the conversation so it appears in the agent's
       // active list immediately.
-      if (statusFilterRef.current === "waiting") {
-        dispatch(setStatusFilter("active"));
-        dispatch(selectConversation(response.conversation.id));
-      }
+      // Ensure the conversation is selected after sending a reply.
+      dispatch(selectConversation(response.conversation.id));
     } catch (error) {
       const message = toErrorMessage(error);
       setUiError(message);

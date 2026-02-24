@@ -12,6 +12,7 @@ export interface Conversation {
   customer_session_id: string;
   status: ConversationStatus;
   assigned_agent_id: string | null;
+  has_agent_replied?: boolean;
   requested_agent_at?: string | null;
   closed_at?: string | null;
   created_at: string;

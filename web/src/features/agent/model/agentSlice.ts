@@ -6,7 +6,7 @@ import type {
   Message,
 } from "../../../shared/types/chat";
 
-export type AgentConversationFilter = "active" | "waiting" | "closed" | "all";
+export type AgentConversationFilter = "active" | "closed" | "all";
 
 interface AgentState {
   agentId: string | null;

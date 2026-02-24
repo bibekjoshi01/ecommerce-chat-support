@@ -33,6 +33,7 @@ class AgentConversationResponse(BaseModel):
     customer_session_id: str
     status: ConversationStatus
     assigned_agent_id: UUID | None
+    has_agent_replied: bool = False
     requested_agent_at: datetime | None
     closed_at: datetime | None
     created_at: datetime

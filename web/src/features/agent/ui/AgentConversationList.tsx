@@ -5,7 +5,6 @@ import "./AgentConversationList.css";
 const filterLabel: Record<AgentConversationFilter, string> = {
   all: "All",
   active: "Active",
-  waiting: "Waiting",
   closed: "Closed",
 };
 
@@ -27,12 +26,7 @@ interface AgentConversationListProps {
   onFilterChange: (nextFilter: AgentConversationFilter) => void;
 }
 
-const filterOptions: AgentConversationFilter[] = [
-  "active",
-  "waiting",
-  "closed",
-  "all",
-];
+const filterOptions: AgentConversationFilter[] = ["active", "closed", "all"];
 
 export const AgentConversationList = ({
   conversations,
@@ -78,13 +72,13 @@ export const AgentConversationList = ({
         const statusLabel =
           conversation.status === "closed"
             ? "Closed"
-            : conversation.assigned_agent_id
+            : conversation.status === "agent"
               ? "Active"
               : "Waiting";
         const statusClass =
           conversation.status === "closed"
             ? "closed"
-            : conversation.assigned_agent_id
+            : conversation.status === "agent"
               ? "agent"
               : "automated";
         return (

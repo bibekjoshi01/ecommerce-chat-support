@@ -146,6 +146,20 @@ class MessageRepository:
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
+    async def conversations_with_agent_messages(self, conversation_ids: list[UUID]) -> list[UUID]:
+        if not conversation_ids:
+            return []
+        stmt: Select[tuple[UUID]] = (
+            select(Message.conversation_id)
+            .where(
+                Message.conversation_id.in_(conversation_ids),
+                Message.sender_type == MessageSenderType.AGENT,
+            )
+            .distinct()
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
 
 class FaqRepository:
     def __init__(self, session: AsyncSession) -> None:

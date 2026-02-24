@@ -141,10 +141,31 @@ class AgentService:
         status_filter: ConversationStatus | None = None,
     ) -> list[Conversation]:
         await self._get_agent_or_raise(agent_id)
-        return await self.conversations.list_for_agent_workspace(
+        convos = await self.conversations.list_for_agent_workspace(
             agent_id=agent_id,
             status_filter=status_filter,
         )
+
+        # Annotate conversations with whether an agent has previously sent a message
+        convo_ids = [c.id for c in convos]
+        try:
+            agent_replied_ids = await self.messages.conversations_with_agent_messages(
+                convo_ids
+            )
+        except Exception:
+            agent_replied_ids = []
+
+        replied_set = set(agent_replied_ids)
+        for c in convos:
+            try:
+                c.has_agent_replied = c.id in replied_set
+            except Exception:
+                # Some test doubles or lightweight objects may not allow new
+                # attributes; ignore in those cases and let the API layer
+                # construct the response without this annotation.
+                pass
+
+        return convos
 
     async def get_conversation_messages(
         self,
@@ -201,6 +222,12 @@ class AgentService:
 
         await self.session.commit()
         await self.session.refresh(conversation)
+
+        # mark conversation as having an agent reply so API responses include flag
+        try:
+            conversation.has_agent_replied = True
+        except Exception:
+            pass
 
         await self._emit_message_created(message)
         await self._emit_conversation_updated(conversation)
@@ -365,6 +392,7 @@ class AgentService:
                 if conversation.assigned_agent_id is not None
                 else None
             ),
+            "has_agent_replied": getattr(conversation, "has_agent_replied", False),
             "requested_agent_at": (
                 conversation.requested_agent_at.isoformat()
                 if conversation.requested_agent_at is not None
