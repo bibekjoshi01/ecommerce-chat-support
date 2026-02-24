@@ -65,6 +65,18 @@ class ConversationRepository:
         result = await self.session.execute(stmt)
         return int(result.scalar_one() or 0)
 
+    async def list_assigned_active_to_agent(self, agent_id: UUID) -> list[Conversation]:
+        stmt: Select[tuple[Conversation]] = (
+            select(Conversation)
+            .where(
+                Conversation.assigned_agent_id == agent_id,
+                Conversation.status == ConversationStatus.AGENT,
+            )
+            .order_by(Conversation.updated_at.desc())
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
     async def list_for_agent_workspace(
         self,
         agent_id: UUID,

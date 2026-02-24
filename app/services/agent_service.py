@@ -91,7 +91,45 @@ class AgentService:
         await self.agents.update_presence(agent, presence)
         await self.session.commit()
         await self.session.refresh(agent)
+
+        # Emit presence changed so frontends and queues react
         await self._emit_agent_presence_changed(agent)
+
+        # When an agent goes offline, close their active agent-mode conversations
+        # and notify the customer with a system message explaining the disconnect.
+        if presence == AgentPresence.OFFLINE:
+            list_assigned = getattr(self.conversations, "list_assigned_active_to_agent", None)
+            if list_assigned is None:
+                return agent
+
+            assigned_conversations = await list_assigned(agent.id)
+            for convo in assigned_conversations:
+                convo.status = ConversationStatus.CLOSED
+                convo.closed_at = datetime.now(UTC)
+
+                system_message = await self.messages.create(
+                    conversation_id=convo.id,
+                    sender_type=MessageSenderType.SYSTEM,
+                    kind=MessageKind.EVENT,
+                    content=(
+                        f"{agent.display_name} disconnected. "
+                        "Please start a new chat to continue."
+                    ),
+                    metadata_json={
+                        "disconnected_agent_id": str(agent.id),
+                        "notification": True,
+                        "notification_type": "agent_disconnected",
+                    },
+                )
+
+                await self.conversations.touch(convo)
+                await self.session.commit()
+                await self.session.refresh(convo)
+
+                await self._emit_message_created(system_message)
+                await self._emit_conversation_updated(convo)
+                await self._emit_chat_closed(convo)
+
         return agent
 
     async def get_agent(self, agent_id: UUID) -> Agent:

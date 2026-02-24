@@ -1,3 +1,4 @@
+import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -68,6 +69,9 @@ class ConversationService:
         self.session = session
         self.conversations = conversations or ConversationRepository(session)
         self.messages = messages or MessageRepository(session)
+        # Small delay before sending bot responses to avoid identical timestamps
+        # which can cause overlapping in some frontends. Value in seconds.
+        self._bot_response_delay = 0.05
         self.faqs = faqs or FaqRepository(session)
         self.agents = agents or AgentRepository(session)
         self.realtime = realtime or NoopRealtimePublisher()
@@ -94,7 +98,11 @@ class ConversationService:
                     content=(
                         "You started a new chat. This conversation has been closed."
                     ),
-                    metadata_json={"closed_by": "customer"},
+                    metadata_json={
+                        "closed_by": "customer",
+                        "notification": True,
+                        "notification_type": "new_chat_started",
+                    },
                 )
                 await self.conversations.touch(previous)
                 await self.session.commit()
@@ -191,6 +199,13 @@ class ConversationService:
             content=faq_entry.question,
             metadata_json={"faq_slug": faq_entry.slug},
         )
+        # Commit and emit customer's message first to guarantee ordering
+        await self.session.commit()
+        await self.session.refresh(customer_message)
+        await self._emit_message_created(customer_message)
+
+        # small delay to ensure message ordering/spacing in realtime clients
+        await asyncio.sleep(self._bot_response_delay)
 
         bot_message = await self.messages.create(
             conversation_id=conversation.id,
@@ -277,6 +292,11 @@ class ConversationService:
                 show_talk_to_agent=False,
             )
 
+        # Commit and emit the customer's message first to guarantee ordering
+        await self.session.commit()
+        await self.session.refresh(customer_message)
+        await self._emit_message_created(customer_message)
+
         faq_match = await self.faqs.find_by_question_or_slug(cleaned_content)
         quick_questions = await self.faqs.list_active()
 
@@ -299,6 +319,9 @@ class ConversationService:
                 bot_content = "I can help with common support questions."
             bot_metadata = {"show_talk_to_agent": True}
 
+        # small delay to reduce overlap in realtime UI when bot replies
+        await asyncio.sleep(self._bot_response_delay)
+
         bot_message = await self.messages.create(
             conversation_id=conversation.id,
             sender_type=MessageSenderType.BOT,
@@ -311,7 +334,7 @@ class ConversationService:
         await self.session.commit()
         await self.session.refresh(conversation)
 
-        await self._emit_message_created(customer_message)
+        # Emit bot message and conversation update
         await self._emit_message_created(bot_message)
         await self._emit_conversation_updated(conversation)
 
