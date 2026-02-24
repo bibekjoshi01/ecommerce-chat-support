@@ -78,9 +78,33 @@ class ConversationService:
         force_new: bool = False,
     ) -> ConversationBootstrap:
         session_id = self._resolve_customer_session_id(customer_session_id)
-
         conversation: Conversation | None = None
-        if not force_new:
+
+        # If requesting a fresh chat, close any existing active conversation
+        if force_new:
+            previous = await self.conversations.get_latest_active_by_session(session_id)
+            if previous is not None:
+                # Mark previous conversation closed and notify customer with a system message
+                previous.status = ConversationStatus.CLOSED
+                previous.closed_at = datetime.now(UTC)
+                system_message = await self.messages.create(
+                    conversation_id=previous.id,
+                    sender_type=MessageSenderType.SYSTEM,
+                    kind=MessageKind.EVENT,
+                    content=(
+                        "You started a new chat. This conversation has been closed."
+                    ),
+                    metadata_json={"closed_by": "customer"},
+                )
+                await self.conversations.touch(previous)
+                await self.session.commit()
+                await self.session.refresh(previous)
+
+                # Publish updates so clients receive the closure and system message
+                await self._emit_message_created(system_message)
+                await self._emit_conversation_updated(previous)
+
+        else:
             conversation = await self.conversations.get_latest_active_by_session(
                 session_id
             )
