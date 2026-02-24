@@ -20,7 +20,6 @@ from app.infra.realtime.channels import (
     conversation_channel,
 )
 from app.infra.realtime.events import RealtimeEvent
-from app.services.agent_service import AgentService
 
 router = APIRouter()
 settings = get_settings()
@@ -391,10 +390,11 @@ async def realtime_ws(websocket: WebSocket) -> None:
 
             if should_set_offline:
                 async with session_factory() as session:
-                    # Use AgentService to update presence and emit presence changed
-                    agent_service = AgentService(session, realtime=hub)
-                    try:
-                        await agent_service.set_presence(tracked_agent_id, AgentPresence.OFFLINE)
-                    except Exception:
-                        # Best-effort: avoid crashing websocket cleanup
-                        pass
+                    agents = AgentRepository(session)
+                    agent = await agents.get_by_id(tracked_agent_id)
+                    if (
+                        agent is not None
+                        and agent.presence != AgentPresence.OFFLINE
+                    ):
+                        await agents.update_presence(agent, AgentPresence.OFFLINE)
+                        await session.commit()
