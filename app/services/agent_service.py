@@ -91,7 +91,41 @@ class AgentService:
         await self.agents.update_presence(agent, presence)
         await self.session.commit()
         await self.session.refresh(agent)
+
+        # Emit presence changed to notify frontends and any queue listeners
         await self._emit_agent_presence_changed(agent)
+
+        # If agent went offline, unassign their active conversations and notify customers
+        if presence == AgentPresence.OFFLINE:
+            list_assigned = getattr(self.conversations, "list_assigned_active_to_agent", None)
+            if list_assigned is None:
+                # repository shim not present (e.g. in tests); skip unassign step
+                return agent
+            assigned_conversations = await list_assigned(agent.id)
+            for convo in assigned_conversations:
+                # Create a system message informing the customer the agent disconnected
+                system_message = await self.messages.create(
+                    conversation_id=convo.id,
+                    sender_type=MessageSenderType.SYSTEM,
+                    kind=MessageKind.EVENT,
+                    content=(
+                        f"{agent.display_name} disconnected. "
+                        "We'll connect you to another agent soon."
+                    ),
+                    metadata_json={"disconnected_agent_id": str(agent.id)},
+                )
+
+                # Unassign the conversation and mark requested time so it can be requeued
+                convo.assigned_agent_id = None
+                convo.requested_agent_at = datetime.now(UTC)
+                await self.conversations.touch(convo)
+
+                await self.session.commit()
+                await self.session.refresh(convo)
+
+                await self._emit_message_created(system_message)
+                await self._emit_conversation_updated(convo)
+
         return agent
 
     async def get_agent(self, agent_id: UUID) -> Agent:
