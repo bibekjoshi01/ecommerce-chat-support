@@ -705,6 +705,14 @@ export const useAgentWorkspaceController = () => {
       dispatch(upsertConversation(response.conversation));
       dispatch(upsertConversationMessage(response.message));
       setDraft("");
+      // If agent is viewing the waiting queue and they just sent the first
+      // agent message for this conversation, promote the UI to the active
+      // filter and select the conversation so it appears in the agent's
+      // active list immediately.
+      if (statusFilterRef.current === "waiting") {
+        dispatch(setStatusFilter("active"));
+        dispatch(selectConversation(response.conversation.id));
+      }
     } catch (error) {
       const message = toErrorMessage(error);
       setUiError(message);
