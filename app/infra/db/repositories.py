@@ -1,7 +1,9 @@
 from datetime import UTC, datetime
+from typing import cast
 from uuid import UUID
 
 from sqlalchemy import Select, and_, func, or_, select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.enums import (
@@ -126,7 +128,8 @@ class ConversationRepository:
             )
         )
         result = await self.session.execute(stmt)
-        return int(result.rowcount or 0) > 0
+        rowcount = cast(CursorResult, result).rowcount
+        return int(rowcount or 0) > 0
 
 
 class MessageRepository:
