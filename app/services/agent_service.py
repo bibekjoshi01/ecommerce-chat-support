@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -158,7 +158,7 @@ class AgentService:
         replied_set = set(agent_replied_ids)
         for c in convos:
             try:
-                c.has_agent_replied = c.id in replied_set
+                cast(Any, c).has_agent_replied = c.id in replied_set
             except Exception:
                 # Some test doubles or lightweight objects may not allow new
                 # attributes; ignore in those cases and let the API layer
@@ -225,7 +225,7 @@ class AgentService:
 
         # mark conversation as having an agent reply so API responses include flag
         try:
-            conversation.has_agent_replied = True
+            cast(Any, conversation).has_agent_replied = True
         except Exception:
             pass
 

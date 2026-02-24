@@ -117,13 +117,13 @@ const shouldShowConversationForFilter = (
   }
 
   const convMessages = messagesByConversation?.[conversation.id] ?? [];
-  let hasAgentMessage = convMessages.some((m) => m.sender_type === "agent");
   // If we don't have messages cached for the conversation, fall back to
   // server-provided flag so classification persists across refresh.
   if (convMessages.length === 0) {
-    hasAgentMessage = (conversation as any).has_agent_replied === true;
+    // reading the server-provided flag is still useful elsewhere; keep check
+    // for potential future logic but avoid creating unused locals.
+    void ((conversation as any).has_agent_replied === true);
   }
-  const unread = unreadByConversation?.[conversation.id] ?? 0;
 
   // Active: conversation in agent mode. We treat all conversations in agent
   // mode as active (no separate waiting bucket).
