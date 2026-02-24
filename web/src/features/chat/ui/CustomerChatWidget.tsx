@@ -208,6 +208,18 @@ export const CustomerChatWidget = () => {
                 {isSending ? "Sending..." : "Send"}
               </button>
             </form>
+          ) : isConversationClosed ? (
+            <div className="chat-mode-footer chat-mode-footer--closed">
+              <p>Chat is disconnected. Start a new chat to continue.</p>
+              <button
+                className="chat-escalate-button"
+                type="button"
+                onClick={() => void startNewConversation()}
+                disabled={isStartingConversation}
+              >
+                {isStartingConversation ? "Starting..." : "Start new chat"}
+              </button>
+            </div>
           ) : (
             <div className="chat-mode-footer">
               <p>Need personalized help from a human?</p>
