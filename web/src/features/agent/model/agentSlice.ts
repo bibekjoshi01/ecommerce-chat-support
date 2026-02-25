@@ -55,10 +55,22 @@ const sortMessages = (messages: Message[]) =>
     return a.id.localeCompare(b.id);
   });
 
+const getMessageMetadata = (message: Message) =>
+  (message.metadata_json ?? message.metadata ?? {}) as Record<string, unknown>;
+
 const isSuppressedSystemNotice = (message: Message) => {
   if (message.sender_type !== "system" || message.kind !== "event") {
     return false;
   }
+  const metadata = getMessageMetadata(message);
+  if (
+    metadata.notification_type === "new_chat_started" ||
+    metadata.queued_for_agent === true ||
+    typeof metadata.assigned_agent_id === "string"
+  ) {
+    return true;
+  }
+
   const normalized = message.content.trim().toLowerCase();
   return (
     normalized.includes("agent disconnected") &&
@@ -66,10 +78,21 @@ const isSuppressedSystemNotice = (message: Message) => {
   );
 };
 
+const isSuppressedCustomerQuickReply = (message: Message) => {
+  if (message.sender_type !== "customer" || message.kind !== "quick_reply") {
+    return false;
+  }
+  const action = getMessageMetadata(message).action;
+  return typeof action === "string" && action.toLowerCase() === "talk_to_agent";
+};
+
+const shouldHideInAgentPanel = (message: Message) =>
+  isSuppressedSystemNotice(message) || isSuppressedCustomerQuickReply(message);
+
 const mergeMessages = (existing: Message[], incoming: Message[]) => {
   const byId = new Map(existing.map((message) => [message.id, message]));
   for (const message of incoming) {
-    if (!byId.has(message.id) && isSuppressedSystemNotice(message)) {
+    if (!byId.has(message.id) && shouldHideInAgentPanel(message)) {
       continue;
     }
     byId.set(message.id, message);
@@ -154,7 +177,7 @@ const agentSlice = createSlice({
     ) {
       const { conversationId, messages } = action.payload;
       state.messagesByConversation[conversationId] = sortMessages(
-        messages.filter((message) => !isSuppressedSystemNotice(message)),
+        messages.filter((message) => !shouldHideInAgentPanel(message)),
       );
       if (state.selectedConversationId === conversationId) {
         state.unreadByConversation[conversationId] = 0;

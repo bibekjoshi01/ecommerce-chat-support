@@ -141,24 +141,28 @@ export const AgentConversationThread = ({
         <div ref={messagesEndRef} />
       </div>
 
-      <form className="agent-thread-composer" onSubmit={onSubmit}>
-        <input
-          className="agent-thread-input"
-          value={draft}
-          onChange={(event) => onDraftChange(event.target.value)}
-          placeholder={isClosed ? "This chat is closed." : "Type your reply to customer..."}
-          maxLength={4000}
-          disabled={isSendingMessage || isClosed}
-        />
-        <button
-          className="agent-thread-send"
-          type="submit"
-          disabled={isSendingMessage || isClosed || !draft.trim()}
-        >
-          <FiSend aria-hidden="true" />
-          {isSendingMessage ? "Sending..." : "Reply"}
-        </button>
-      </form>
+      {isClosed ? (
+        <div className="agent-thread-closed">This chat is closed.</div>
+      ) : (
+        <form className="agent-thread-composer" onSubmit={onSubmit}>
+          <input
+            className="agent-thread-input"
+            value={draft}
+            onChange={(event) => onDraftChange(event.target.value)}
+            placeholder="Type your reply to customer..."
+            maxLength={4000}
+            disabled={isSendingMessage}
+          />
+          <button
+            className="agent-thread-send"
+            type="submit"
+            disabled={isSendingMessage || !draft.trim()}
+          >
+            <FiSend aria-hidden="true" />
+            {isSendingMessage ? "Sending..." : "Reply"}
+          </button>
+        </form>
+      )}
     </section>
   );
 };

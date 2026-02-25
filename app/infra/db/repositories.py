@@ -47,6 +47,18 @@ class ConversationRepository:
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def get_latest_by_session(
+        self, customer_session_id: str
+    ) -> Conversation | None:
+        stmt: Select[tuple[Conversation]] = (
+            select(Conversation)
+            .where(Conversation.customer_session_id == customer_session_id)
+            .order_by(Conversation.updated_at.desc())
+            .limit(1)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def create(self, customer_session_id: str) -> Conversation:
         conversation = Conversation(
             customer_session_id=customer_session_id, status=ConversationStatus.AUTOMATED

@@ -116,6 +116,10 @@ class ConversationService:
             conversation = await self.conversations.get_latest_active_by_session(
                 session_id
             )
+            if conversation is None:
+                conversation = await self.conversations.get_latest_by_session(
+                    session_id
+                )
 
         if conversation is None:
             conversation = await self.conversations.create(session_id)

@@ -151,6 +151,15 @@
   gap: 0.45rem;
 }
 
+.agent-thread-closed {
+  border-top: 1px solid #dbe5ef;
+  padding: 0.9rem 0.85rem 1rem;
+  text-align: center;
+  font-size: 0.86rem;
+  color: #5f728a;
+  background: linear-gradient(175deg, #fbfeff, #f4f9ff);
+}
+
 .agent-thread-input {
   border: 1px solid #cad7e4;
   border-radius: 10px;
