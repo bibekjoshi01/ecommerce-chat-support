@@ -22,9 +22,6 @@ export const AgentWorkspaceHeader = ({
     <div>
       <p className="agent-workspace-kicker">Agent Console</p>
       <h1>Live Support Queue</h1>
-      <p className="agent-workspace-subtitle">
-        Manage assigned chats, respond quickly, and close conversations cleanly.
-      </p>
     </div>
 
     <div className="agent-workspace-controls">
@@ -37,9 +34,7 @@ export const AgentWorkspaceHeader = ({
             isRealtimeConnected ? "agent-realtime-badge--online" : ""
           }`}
         >
-          {isRealtimeConnected
-            ? "Realtime: connected"
-            : "Realtime: reconnecting"}
+          {isRealtimeConnected ? "connected" : "reconnecting"}
         </span>
       </div>
 

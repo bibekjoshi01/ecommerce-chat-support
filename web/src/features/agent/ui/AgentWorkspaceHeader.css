@@ -2,7 +2,11 @@
   border: 1px solid #d3deea;
   border-radius: 18px;
   padding: 1rem;
-  background: linear-gradient(145deg, rgb(255 255 255 / 92%), rgb(237 247 255 / 84%));
+  background: linear-gradient(
+    145deg,
+    rgb(255 255 255 / 92%),
+    rgb(237 247 255 / 84%)
+  );
   box-shadow:
     0 12px 28px rgb(16 40 66 / 12%),
     inset 0 1px 0 rgb(255 255 255 / 86%);
@@ -34,7 +38,7 @@
 
 .agent-workspace-controls {
   min-width: 320px;
-  display: grid;
+  display: flex;
   gap: 0.55rem;
   justify-items: end;
 }

@@ -225,6 +225,7 @@ export const useAgentWorkspaceController = () => {
     }
     dispatch(clearAgentIdentity());
     dispatch(resetAgentWorkspace());
+    dispatch(setStatusFilter("active"));
     navigate("/agent/login", { replace: true });
   }, [clearTypingTimer, dispatch, navigate]);
 
