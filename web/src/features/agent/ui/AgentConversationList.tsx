@@ -8,12 +8,34 @@ const filterLabel: Record<AgentConversationFilter, string> = {
   closed: "Closed",
 };
 
-const formatTime = (iso: string) => {
+const formatRelativeTime = (iso: string) => {
   const parsed = new Date(iso);
   if (Number.isNaN(parsed.valueOf())) {
     return "";
   }
-  return parsed.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+  const now = new Date();
+  const isSameDay =
+    parsed.getFullYear() === now.getFullYear() &&
+    parsed.getMonth() === now.getMonth() &&
+    parsed.getDate() === now.getDate();
+  if (isSameDay) {
+    return parsed.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+
+  const diffMs = now.getTime() - parsed.getTime();
+  const diffDays = Math.max(1, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+  if (diffDays < 30) {
+    return diffDays === 1 ? "1 day ago" : `${diffDays} days ago`;
+  }
+
+  const diffMonths = Math.max(1, Math.floor(diffDays / 30));
+  if (diffMonths < 12) {
+    return diffMonths === 1 ? "1 month ago" : `${diffMonths} months ago`;
+  }
+
+  const diffYears = Math.max(1, Math.floor(diffMonths / 12));
+  return diffYears === 1 ? "1 year ago" : `${diffYears} years ago`;
 };
 
 interface AgentConversationListProps {
@@ -98,7 +120,7 @@ export const AgentConversationList = ({
               <span className="agent-conversation-session">
                 {conversation.customer_session_id.slice(0, 18)}
               </span>
-              <time>{formatTime(conversation.updated_at)}</time>
+              <time>{formatRelativeTime(conversation.updated_at)}</time>
             </div>
 
             <div className="agent-conversation-row">
