@@ -90,6 +90,18 @@ class FakeConversationRepository:
             return None
         return sorted(active, key=lambda conv: conv.updated_at, reverse=True)[0]
 
+    async def get_latest_by_session(
+        self, customer_session_id: str
+    ) -> FakeConversation | None:
+        matches = [
+            conv
+            for conv in self.conversations.values()
+            if conv.customer_session_id == customer_session_id
+        ]
+        if not matches:
+            return None
+        return sorted(matches, key=lambda conv: conv.updated_at, reverse=True)[0]
+
     async def create(self, customer_session_id: str) -> FakeConversation:
         conv = FakeConversation(
             id=uuid4(),
