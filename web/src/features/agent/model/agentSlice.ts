@@ -38,9 +38,23 @@ const sortMessages = (messages: Message[]) =>
     (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
   );
 
+const isSuppressedSystemNotice = (message: Message) => {
+  if (message.sender_type !== "system" || message.kind !== "event") {
+    return false;
+  }
+  const normalized = message.content.trim().toLowerCase();
+  return (
+    normalized.includes("agent disconnected") &&
+    normalized.includes("reconnecting you to another agent")
+  );
+};
+
 const mergeMessages = (existing: Message[], incoming: Message[]) => {
   const byId = new Map(existing.map((message) => [message.id, message]));
   for (const message of incoming) {
+    if (!byId.has(message.id) && isSuppressedSystemNotice(message)) {
+      continue;
+    }
     byId.set(message.id, message);
   }
   return sortMessages([...byId.values()]);
@@ -122,7 +136,9 @@ const agentSlice = createSlice({
       action: PayloadAction<{ conversationId: string; messages: Message[] }>,
     ) {
       const { conversationId, messages } = action.payload;
-      state.messagesByConversation[conversationId] = sortMessages(messages);
+      state.messagesByConversation[conversationId] = sortMessages(
+        messages.filter((message) => !isSuppressedSystemNotice(message)),
+      );
       if (state.selectedConversationId === conversationId) {
         state.unreadByConversation[conversationId] = 0;
       }

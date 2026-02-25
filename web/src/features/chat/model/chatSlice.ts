@@ -35,6 +35,17 @@ const isAgentConnectedNotice = (message: Message) =>
     .toLowerCase()
     .endsWith("is connected. you can continue typing your message.");
 
+const isSuppressedSystemNotice = (message: Message) => {
+  if (message.sender_type !== "system" || message.kind !== "event") {
+    return false;
+  }
+  const normalized = message.content.trim().toLowerCase();
+  return (
+    normalized.includes("agent disconnected") &&
+    normalized.includes("reconnecting you to another agent")
+  );
+};
+
 const mergeMessages = (existing: Message[], incoming: Message[]) => {
   const byId = new Map(existing.map((message) => [message.id, message]));
   const existingConnectedNoticeContent = new Set(
@@ -44,6 +55,9 @@ const mergeMessages = (existing: Message[], incoming: Message[]) => {
   );
 
   for (const message of incoming) {
+    if (!byId.has(message.id) && isSuppressedSystemNotice(message)) {
+      continue;
+    }
     if (
       !byId.has(message.id) &&
       isAgentConnectedNotice(message) &&
@@ -71,7 +85,11 @@ const chatSlice = createSlice({
       action: PayloadAction<ConversationBootstrapResponse>,
     ) {
       state.conversation = action.payload.conversation;
-      state.messages = sortByCreatedAt(action.payload.messages);
+      state.messages = sortByCreatedAt(
+        action.payload.messages.filter(
+          (message) => !isSuppressedSystemNotice(message),
+        ),
+      );
       state.quickQuestions = action.payload.quick_questions;
     },
     appendExchange(state, action: PayloadAction<BotExchangeResponse>) {
@@ -91,7 +109,11 @@ const chatSlice = createSlice({
       action: PayloadAction<{ conversation: Conversation; messages: Message[] }>,
     ) {
       state.conversation = action.payload.conversation;
-      state.messages = sortByCreatedAt(action.payload.messages);
+      state.messages = sortByCreatedAt(
+        action.payload.messages.filter(
+          (message) => !isSuppressedSystemNotice(message),
+        ),
+      );
     },
     upsertMessage(state, action: PayloadAction<Message>) {
       state.messages = mergeMessages(state.messages, [action.payload]);

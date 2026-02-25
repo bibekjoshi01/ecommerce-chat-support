@@ -170,9 +170,6 @@ class AgentService:
             )
             if assigned_now:
                 conversation.assigned_agent_id = agent.id
-                conversation.requested_agent_at = (
-                    conversation.requested_agent_at or datetime.now(UTC)
-                )
             else:
                 refreshed = await self.conversations.get_by_id(conversation.id)
                 if (
@@ -239,9 +236,6 @@ class AgentService:
             )
             if assigned_now:
                 conversation.assigned_agent_id = agent.id
-                conversation.requested_agent_at = (
-                    conversation.requested_agent_at or datetime.now(UTC)
-                )
             else:
                 refreshed = await self.conversations.get_by_id(conversation.id)
                 if (
