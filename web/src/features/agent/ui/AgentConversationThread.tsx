@@ -17,6 +17,20 @@ const senderLabel = (senderType: Message["sender_type"]) => {
   return "System";
 };
 
+const getMessageMetadata = (message: Message) =>
+  (message.metadata_json ?? message.metadata ?? {}) as Record<string, unknown>;
+
+const isTalkToAgentQuickReply = (message: Message) => {
+  if (message.sender_type !== "customer" || message.kind !== "quick_reply") {
+    return false;
+  }
+  const action = getMessageMetadata(message).action;
+  return typeof action === "string" && action.toLowerCase() === "talk_to_agent";
+};
+
+const isNoticeMessage = (message: Message) =>
+  message.sender_type === "system" || isTalkToAgentQuickReply(message);
+
 const formatTime = (iso: string) => {
   const parsed = new Date(iso);
   if (Number.isNaN(parsed.valueOf())) {
@@ -100,6 +114,14 @@ export const AgentConversationThread = ({
         )}
 
         {messages.map((message) => {
+          if (isNoticeMessage(message)) {
+            return (
+              <div className="agent-thread-notice" key={message.id}>
+                <span className="agent-thread-notice-text">{message.content}</span>
+              </div>
+            );
+          }
+
           const messageTone =
             message.sender_type === "agent"
               ? "agent-thread-bubble--agent"

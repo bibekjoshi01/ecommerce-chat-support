@@ -13,6 +13,20 @@ const timeFormatter = new Intl.DateTimeFormat("en-US", {
 const senderLabel = (senderType: Message["sender_type"]) =>
   senderType === "customer" ? "You" : "Support";
 
+const getMessageMetadata = (message: Message) =>
+  (message.metadata_json ?? message.metadata ?? {}) as Record<string, unknown>;
+
+const isTalkToAgentQuickReply = (message: Message) => {
+  if (message.sender_type !== "customer" || message.kind !== "quick_reply") {
+    return false;
+  }
+  const action = getMessageMetadata(message).action;
+  return typeof action === "string" && action.toLowerCase() === "talk_to_agent";
+};
+
+const isNoticeMessage = (message: Message) =>
+  message.sender_type === "system" || isTalkToAgentQuickReply(message);
+
 const formatTime = (iso: string) => {
   const parsed = new Date(iso);
   if (Number.isNaN(parsed.valueOf())) {
@@ -128,6 +142,14 @@ export const CustomerChatWidget = () => {
             )}
 
             {messages.map((message) => {
+              if (isNoticeMessage(message)) {
+                return (
+                  <div className="chat-notice" key={message.id}>
+                    <span className="chat-notice-text">{message.content}</span>
+                  </div>
+                );
+              }
+
               const tone =
                 message.sender_type === "customer"
                   ? "bubble--customer"

@@ -79,6 +79,26 @@
   padding: 0.85rem;
 }
 
+.agent-thread-notice {
+  margin: 0.35rem auto 0.6rem;
+  text-align: center;
+  display: flex;
+  justify-content: center;
+  max-width: 80%;
+  color: #5b6b81;
+  font-size: 0.78rem;
+}
+
+.agent-thread-notice-text {
+  background: #f1f5fa;
+  border: 1px solid #d4dfec;
+  border-radius: 999px;
+  padding: 0.25rem 0.7rem;
+  display: inline-block;
+  justify-self: center;
+}
+
+
 .agent-thread-bubble {
   max-width: 86%;
   border-radius: 14px;

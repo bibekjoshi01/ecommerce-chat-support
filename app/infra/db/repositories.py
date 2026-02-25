@@ -152,6 +152,7 @@ class MessageRepository:
             kind=kind,
             content=content,
             metadata_json=metadata_json,
+            created_at=datetime.now(UTC),
         )
         self.session.add(message)
         await self.session.flush()

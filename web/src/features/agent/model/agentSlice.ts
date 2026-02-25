@@ -33,10 +33,27 @@ const sortConversations = (items: Conversation[]) =>
     (a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime(),
   );
 
+const senderPriority: Record<Message["sender_type"], number> = {
+  customer: 0,
+  agent: 1,
+  bot: 2,
+  system: 3,
+};
+
 const sortMessages = (messages: Message[]) =>
-  [...messages].sort(
-    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
-  );
+  [...messages].sort((a, b) => {
+    const timeDelta =
+      new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+    if (timeDelta !== 0) {
+      return timeDelta;
+    }
+    const senderDelta =
+      senderPriority[a.sender_type] - senderPriority[b.sender_type];
+    if (senderDelta !== 0) {
+      return senderDelta;
+    }
+    return a.id.localeCompare(b.id);
+  });
 
 const isSuppressedSystemNotice = (message: Message) => {
   if (message.sender_type !== "system" || message.kind !== "event") {

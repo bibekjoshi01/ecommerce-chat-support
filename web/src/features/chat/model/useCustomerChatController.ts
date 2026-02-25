@@ -35,10 +35,27 @@ const AGENT_TYPING_RESET_MS = 1800;
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+const senderPriority: Record<Message["sender_type"], number> = {
+  customer: 0,
+  agent: 1,
+  bot: 2,
+  system: 3,
+};
+
 const sortByCreatedAt = (messages: Message[]) =>
-  [...messages].sort(
-    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
-  );
+  [...messages].sort((a, b) => {
+    const timeDelta =
+      new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+    if (timeDelta !== 0) {
+      return timeDelta;
+    }
+    const senderDelta =
+      senderPriority[a.sender_type] - senderPriority[b.sender_type];
+    if (senderDelta !== 0) {
+      return senderDelta;
+    }
+    return a.id.localeCompare(b.id);
+  });
 
 const toErrorMessage = (error: unknown): string => {
   if (!error || typeof error !== "object") {
